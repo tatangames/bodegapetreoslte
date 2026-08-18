@@ -7,18 +7,22 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * ENTRADAS POR DIFERENTES AREAS
+     * ENTRADAS
      */
     public function up(): void
     {
         Schema::create('entradas', function (Blueprint $table) {
             $table->id();
-            $table->bigInteger('id_proveedor')->unsigned();
+            $table->bigInteger('id_tipoproyecto')->unsigned();
             $table->date('fecha');
             $table->string('factura', 100)->nullable();
             $table->string('descripcion', 800)->nullable();
 
-            $table->foreign('id_proveedor')->references('id')->on('proveedor');
+            $table->boolean('es_transferencia')->default(false);
+            $table->bigInteger('id_tipoproyecto_transferencia')->unsigned()->nullable();
+
+            $table->foreign('id_tipoproyecto')->references('id')->on('tipoproyecto');
+            $table->foreign('id_tipoproyecto_transferencia')->references('id')->on('tipoproyecto');
         });
     }
 

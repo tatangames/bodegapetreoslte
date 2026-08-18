@@ -5,15 +5,11 @@ namespace App\Http\Controllers\Sistema;
 use App\Http\Controllers\Controller;
 use App\Models\Entradas;
 use App\Models\EntradasDetalle;
-use App\Models\Equipos;
 use App\Models\InformacionGeneral;
 use App\Models\Materiales;
-use App\Models\Proveedor;
 use App\Models\Reserva;
 use App\Models\Salidas;
 use App\Models\SalidasDetalle;
-use App\Models\TipoCompra;
-use App\Models\TipoEntrada;
 use App\Models\TipoProyecto;
 use App\Models\Transferencia;
 use App\Models\TransferenciaDetalle;
@@ -28,30 +24,31 @@ class HistorialController extends Controller
 
     public function indexHistorialEntradas()
     {
-        $proveedores = Proveedor::orderBy('nombre')->get();
-        return view('backend.admin.historial.entradas.vistahistorialentradas', compact('proveedores'));
+        $arrayProyectos = TipoProyecto::orderBy('nombre')->get(); // ajusta el modelo si es diferente
+
+        return view('backend.admin.historial.entradas.vistahistorialentradas',
+            compact('arrayProyectos'));
     }
 
     public function tablaHistorialEntradas(Request $request)
     {
-        $arrayEntradas = Entradas::with(['proveedor'])
+        $arrayEntradas = Entradas::with([
+            'tipoproyecto',
+            'tipoproyectoTransferencia'
+        ])
+            ->when($request->proyecto, fn($q) =>
+            $q->where('id_tipoproyecto', $request->proyecto)
+            )
             ->when($request->fecha_desde, fn($q) =>
             $q->whereDate('fecha', '>=', $request->fecha_desde)
             )
             ->when($request->fecha_hasta, fn($q) =>
             $q->whereDate('fecha', '<=', $request->fecha_hasta)
             )
-            ->when($request->factura, fn($q) =>
-            $q->where('factura', 'LIKE', '%' . $request->factura . '%')
-            )
-            ->when($request->proveedor, fn($q) =>
-            $q->where('id_proveedor', $request->proveedor)
-            )
             ->orderBy('fecha', 'desc')
             ->get()
             ->map(function ($item) {
-                $item->fecha_fmt       = date('d/m/Y', strtotime($item->fecha));
-                $item->proveedor_nombre = $item->proveedor->nombre ?? '';
+                $item->fecha_fmt = date('d/m/Y', strtotime($item->fecha));
                 return $item;
             });
 
@@ -61,7 +58,7 @@ class HistorialController extends Controller
 
     public function informacionEntrada(Request $request)
     {
-        $entrada = Entradas::with('proveedor')->find($request->id);
+        $entrada = Entradas::find($request->id);
 
         if (!$entrada) {
             return response()->json(['success' => 0]);
@@ -70,11 +67,10 @@ class HistorialController extends Controller
         return response()->json([
             'success' => 1,
             'entrada' => [
-                'id'           => $entrada->id,
-                'fecha'        => $entrada->fecha,
-                'factura'      => $entrada->factura,
-                'descripcion'  => $entrada->descripcion,
-                'id_proveedor' => $entrada->id_proveedor,
+                'id'          => $entrada->id,
+                'fecha'       => $entrada->fecha,   // YYYY-MM-DD directo para el input type="date"
+                'factura'     => $entrada->factura,
+                'descripcion' => $entrada->descripcion,
             ]
         ]);
     }
@@ -87,10 +83,9 @@ class HistorialController extends Controller
             return response()->json(['success' => 0]);
         }
 
-        $entrada->fecha        = $request->fecha;
-        $entrada->factura      = $request->factura      ?: null;
-        $entrada->descripcion  = $request->descripcion  ?: null;
-        $entrada->id_proveedor = $request->id_proveedor ?: $entrada->id_proveedor;
+        $entrada->fecha       = $request->fecha;
+        $entrada->factura     = $request->factura     ?: null;
+        $entrada->descripcion = $request->descripcion ?: null;
         $entrada->save();
 
         return response()->json(['success' => 1]);
@@ -108,25 +103,84 @@ class HistorialController extends Controller
         DB::beginTransaction();
 
         try {
+
+            // ──────────────────────────────────────────────────────────
+            // BLOQUEO: la entrada es DESTINO de una transferencia
+            // ──────────────────────────────────────────────────────────
+            // Si esta entrada nació de una transferencia, borrarla por
+            // separado dejaría viva la salida del proyecto origen y el
+            // material quedaría descuadrado. Debe eliminarse desde el
+            // Historial de Transferencias (eliminarTransferencia borra
+            // el par completo: salida + entrada + historial).
+            $esDestinoTransferencia = Transferencia::where('id_entrada', $entrada->id)
+                ->exists();
+
+            if ($esDestinoTransferencia) {
+                DB::rollback();
+                return response()->json([
+                    'success' => 3,
+                    'msg'     => 'Esta entrada proviene de una transferencia. '
+                        . 'Elimínela desde el Historial de Transferencias.',
+                ]);
+            }
+
             $idsDetalle = $entrada->detalle()->pluck('id');
 
             if ($idsDetalle->isNotEmpty()) {
 
-                // Verificar si algún detalle tiene salidas
-                $tieneSalidas = SalidasDetalle::whereIn('id_entrada_detalle', $idsDetalle)->exists();
+                // ──────────────────────────────────────────────────────
+                // RESERVAS asociadas a estos entradas_detalle
+                // ──────────────────────────────────────────────────────
+                $reservas = Reserva::whereIn('id_entrada_detalle', $idsDetalle)->get();
 
-                if ($tieneSalidas) {
+                // Reservas ya despachadas → no se puede borrar
+                $hayDespachadas = $reservas->where('despachado', 1)->count() > 0;
+
+                if ($hayDespachadas) {
                     DB::rollback();
                     return response()->json([
                         'success' => 2,
-                        'msg' => 'Esta entrada tiene salidas registradas y no puede eliminarse.',
+                        'msg'     => 'Esta entrada tiene reservas ya despachadas. '
+                            . 'No se puede eliminar.',
                     ]);
                 }
+
+                // Borrar en cascada las reservas PENDIENTES (despachado = 0)
+                Reserva::whereIn('id_entrada_detalle', $idsDetalle)
+                    ->where('despachado', 0)
+                    ->delete();
+
+                // ──────────────────────────────────────────────────────
+                // SALIDAS afectadas (IDs antes de borrar sus detalles)
+                // ──────────────────────────────────────────────────────
+                $idsSalidas = SalidasDetalle::whereIn('id_entrada_detalle', $idsDetalle)
+                    ->pluck('id_salida')
+                    ->unique();
+
+                // Borrar salidas_detalle que apuntan a estos entradas_detalle
+                SalidasDetalle::whereIn('id_entrada_detalle', $idsDetalle)->delete();
+
+                // Borrar salidas que quedaron sin ningún detalle
+                if ($idsSalidas->isNotEmpty()) {
+                    $salidasHuerfanas = Salidas::whereIn('id', $idsSalidas)
+                        ->whereDoesntHave('detalle')
+                        ->pluck('id');
+
+                    if ($salidasHuerfanas->isNotEmpty()) {
+                        Salidas::whereIn('id', $salidasHuerfanas)->delete();
+                    }
+                }
+
+                // ──────────────────────────────────────────────────────
+                // TRANSFERENCIA_DETALLE huérfano que apunte a estos detalles
+                // ──────────────────────────────────────────────────────
+                TransferenciaDetalle::whereIn('id_entrada_detalle', $idsDetalle)->delete();
 
                 // Borrar entradas_detalle
                 $entrada->detalle()->delete();
             }
 
+            // Borrar la entrada
             $entrada->delete();
 
             DB::commit();
@@ -151,16 +205,14 @@ class HistorialController extends Controller
             ->with('material')
             ->get()
             ->map(function ($item) {
-                $tieneSalidas = SalidasDetalle::where('id_entrada_detalle', $item->id)->exists();
                 return [
-                    'id'               => $item->id,
-                    'codigo'           => $item->codigo ?? '',
-                    'nombre'           => $item->nombre ?? '',
-                    'material'         => $item->material->nombre ?? '',
-                    'cantidad_inicial' => $item->cantidad_inicial,
-                    'precio'           => number_format($item->precio, 4),
-                    'precio_raw'       => $item->precio,
-                    'tiene_salidas'    => $tieneSalidas ? 1 : 0,
+                    'id'             => $item->id,
+                    'codigo'         => $item->codigo ?? '',
+                    'marca'            => $item->material->codigo ?? '',
+                    'material'       => $item->material->nombre ?? '',
+                    'cantidad_inicial'=> $item->cantidad_inicial,
+                    'precio'         => number_format($item->precio, 4),
+                    'precio_raw'     => $item->precio,  // sin formato para el input
                 ];
             });
 
@@ -180,23 +232,11 @@ class HistorialController extends Controller
 
         $detalle->codigo = $request->codigo ?: null;
         $detalle->precio = $request->precio;
-
-        // Actualizar cantidad solo si no tiene salidas
-        if ($request->filled('cantidad')) {
-            $tieneSalidas = SalidasDetalle::where('id_entrada_detalle', $detalle->id)->exists();
-            if ($tieneSalidas) {
-                return response()->json([
-                    'success' => 2,
-                    'msg'     => 'No se puede modificar la cantidad porque este material ya tiene salidas registradas.',
-                ]);
-            }
-            $detalle->cantidad_inicial = (int) $request->cantidad;
-        }
-
         $detalle->save();
 
         return response()->json(['success' => 1]);
     }
+
 
     public function eliminarDetalleEntrada(Request $request)
     {
@@ -206,36 +246,95 @@ class HistorialController extends Controller
             return response()->json(['success' => 0]);
         }
 
-        // Bloquear si tiene salidas
+        // 1) Cargar entrada y proyecto
+        $entrada = Entradas::find($detalle->id_entradas);
+        if (!$entrada) {
+            return response()->json(['success' => 0]);
+        }
+
+        $proyecto = TipoProyecto::find($entrada->id_tipoproyecto);
+        if (!$proyecto) {
+            return response()->json(['success' => 0]);
+        }
+
+        // 2) Bloquear si el proyecto está cerrado (transferido)
+        if ($proyecto->transferido) {
+            return response()->json([
+                'success' => 2,
+                'msg' => 'No se puede eliminar: el proyecto está cerrado.'
+            ]);
+        }
+
+        // 3) Bloquear si la entrada es destino de una transferencia
+        //    (no debería editarse desde aquí, sino desde el historial de transferencias)
+        if ($entrada->es_transferencia) {
+            return response()->json([
+                'success' => 3,
+                'msg' => 'Este material proviene de una transferencia. Elimínelo desde el Historial de Transferencias.'
+            ]);
+        }
+
+        // 4) Bloquear si el detalle tiene salidas registradas
         $tieneSalidas = SalidasDetalle::where('id_entrada_detalle', $detalle->id)->exists();
         if ($tieneSalidas) {
             return response()->json([
                 'success' => 4,
-                'msg' => 'Este material ya tiene salidas registradas y no puede eliminarse.',
+                'msg' => 'Este material ya tiene salidas registradas y no puede eliminarse.'
             ]);
         }
 
+        // 5) Bloquear si el detalle tiene reservas
+        $tieneReservas = DB::table('reservas')
+            ->where('id_entrada_detalle', $detalle->id)
+            ->exists();
+        if ($tieneReservas) {
+            return response()->json([
+                'success' => 5,
+                'msg' => 'Este material tiene reservas asociadas y no puede eliminarse.'
+            ]);
+        }
+
+        // 6) Bloquear si el detalle fue incluido en una transferencia (proyecto cerrado en el pasado)
+        $estaEnTransferencia = DB::table('transferencia_detalle')
+            ->where('id_entrada_detalle', $detalle->id)
+            ->exists();
+        if ($estaEnTransferencia) {
+            return response()->json([
+                'success' => 6,
+                'msg' => 'Este material está incluido en una transferencia y no puede eliminarse.'
+            ]);
+        }
+
+        // 7) Eliminar
         DB::beginTransaction();
         try {
             $entradaId = $detalle->id_entradas;
             $detalle->delete();
 
-            // Si era el último detalle, eliminar también la cabecera
+            // Si era el último detalle de la entrada, eliminar también la cabecera
             $quedan = EntradasDetalle::where('id_entradas', $entradaId)->count();
 
             if ($quedan === 0) {
                 Entradas::where('id', $entradaId)->delete();
                 DB::commit();
-                return response()->json(['success' => 1, 'entrada_borrada' => true]);
+                return response()->json([
+                    'success'         => 1,
+                    'entrada_borrada' => true
+                ]);
             }
 
             DB::commit();
-            return response()->json(['success' => 1, 'entrada_borrada' => false]);
+            return response()->json([
+                'success'         => 1,
+                'entrada_borrada' => false
+            ]);
 
-        } catch (\Throwable $e) {
+        } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('eliminarDetalleEntrada: ' . $e->getMessage());
-            return response()->json(['success' => 99, 'msg' => 'Error al eliminar.']);
+            return response()->json([
+                'success' => 99,
+                'msg' => 'Error al eliminar: ' . $e->getMessage()
+            ]);
         }
     }
 
@@ -273,11 +372,11 @@ class HistorialController extends Controller
 
         foreach ($contenedor as $item) {
             EntradasDetalle::create([
-                'id_entradas' => $entrada->id,
-                'id_material' => $item['idMaterial'],
+                'id_entradas'      => $entrada->id,
+                'id_material'      => $item['idMaterial'],
                 'cantidad_inicial' => $item['infoCantidad'],
-                'codigo' => $item['infoCodigo'] ?: null,
-                'precio' => $item['infoPrecio'],
+                'codigo'           => $item['infoCodigo'] ?: null,
+                'precio'           => $item['infoPrecio'],
             ]);
         }
 
@@ -289,33 +388,33 @@ class HistorialController extends Controller
 
     public function indexHistorialSalidas()
     {
-        return view('backend.admin.historial.salidas.vistahistorialsalidas');
+        $arrayProyectos = TipoProyecto::orderBy('nombre')->get();
+
+        return view('backend.admin.historial.salidas.vistahistorialsalidas',
+            compact('arrayProyectos'));
     }
 
     public function tablaHistorialSalidas(Request $request)
     {
-        $arraySalidas = Salidas::query()
+        $arraySalidas = Salidas::with('tipoproyecto')
+            ->when($request->proyecto, fn($q) =>
+            $q->where('id_tipoproyecto', $request->proyecto)
+            )
             ->when($request->fecha_desde, fn($q) =>
             $q->whereDate('fecha', '>=', $request->fecha_desde)
             )
             ->when($request->fecha_hasta, fn($q) =>
             $q->whereDate('fecha', '<=', $request->fecha_hasta)
             )
-            ->when($request->talonario, fn($q) =>
-            $q->where('ficha_talonario', 'LIKE', '%' . $request->talonario . '%')
-            )
-            ->when($request->contrato, fn($q) =>
-            $q->where('numero_contrato', 'LIKE', '%' . $request->contrato . '%')
-            )
-            ->when($request->orden, fn($q) =>
-            $q->where('numero_orden', 'LIKE', '%' . $request->orden . '%')
-            )
+            // ── Filtro por material ──────────────────────────────
             ->when($request->material, function ($q) use ($request) {
                 $busqueda = '%' . $request->material . '%';
-                $q->whereHas('detalle.entradaDetalle.material', function ($q2) use ($busqueda) {
-                    $q2->where('nombre', 'LIKE', $busqueda);
+                $q->whereHas('detalles.entradaDetalle.material', function ($q2) use ($busqueda) {
+                    $q2->where('nombre', 'LIKE', $busqueda)
+                        ->orWhere('codigo', 'LIKE', $busqueda);
                 });
             })
+            // ────────────────────────────────────────────────────
             ->orderBy('fecha', 'desc')
             ->get()
             ->map(function ($item) {
@@ -339,21 +438,9 @@ class HistorialController extends Controller
         return response()->json([
             'success' => 1,
             'salida'  => [
-                'id'              => $salida->id,
-                'fecha'           => $salida->fecha,
-                'descripcion'     => $salida->descripcion,
-                'ficha_nombre'    => $salida->ficha_nombre,
-                'ficha_talonario' => $salida->ficha_talonario,
-                'numero_contrato' => $salida->numero_contrato,
-                'numero_orden'    => $salida->numero_orden,
-                'nombre_firma_1'  => $salida->nombre_firma_1,
-                'nombre_firma_2'  => $salida->nombre_firma_2,
-                'nombre_firma_3'  => $salida->nombre_firma_3,
-                'autoriza_a'      => $salida->autoriza_a,
-                'para_uso'        => $salida->para_uso,
-                'peticion_a'      => $salida->peticion_a,
-                'encabezado'      => $salida->encabezado,
-                'pie_pagina'      => $salida->pie_pagina,
+                'id'          => $salida->id,
+                'fecha'       => $salida->fecha,
+                'descripcion' => $salida->descripcion,
             ]
         ]);
     }
@@ -366,24 +453,33 @@ class HistorialController extends Controller
             return response()->json(['success' => 0]);
         }
 
-        $salida->fecha           = $request->fecha;
-        $salida->descripcion     = $request->descripcion     ?: null;
-        $salida->ficha_talonario = $request->ficha_talonario ?: null;
-        $salida->numero_contrato = $request->numero_contrato ?: null;
-        $salida->numero_orden    = $request->numero_orden    ?: null;
-        $salida->nombre_firma_1  = $request->nombre_firma_1  ?: null;
-        $salida->nombre_firma_2  = $request->nombre_firma_2  ?: null;
-        $salida->nombre_firma_3  = $request->nombre_firma_3  ?: null;
-        $salida->autoriza_a      = $request->autoriza_a      ?: null;
-        $salida->para_uso        = $request->para_uso        ?: null;
-        $salida->peticion_a      = $request->peticion_a      ?: null;
-        $salida->encabezado      = $request->encabezado      ?: null;
-        $salida->pie_pagina      = $request->pie_pagina      ?: null;
+        // ── Validar que la nueva fecha no sea anterior al ingreso de ningún ítem ──
+        $entradaConflicto = DB::table('salidas_detalle as sd')
+            ->join('entradas_detalle as ed', 'ed.id', '=', 'sd.id_entrada_detalle')
+            ->join('entradas as e',          'e.id',  '=', 'ed.id_entradas')
+            ->join('materiales as m',        'm.id',  '=', 'ed.id_material')
+            ->where('sd.id_salida', $salida->id)
+            ->where('e.fecha', '>', $request->fecha)   // ingreso posterior a la nueva fecha
+            ->orderBy('e.fecha', 'desc')
+            ->select('m.nombre as nombre_material', 'e.fecha as fecha_ingreso')
+            ->first();
+
+        if ($entradaConflicto) {
+            return response()->json([
+                'success'         => 2,
+                'nombre_material' => $entradaConflicto->nombre_material,
+                'fecha_salida'    => Carbon::parse($request->fecha)->format('d-m-Y'),
+                'fecha_ingreso'   => Carbon::parse($entradaConflicto->fecha_ingreso)->format('d-m-Y'),
+            ]);
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
+        $salida->fecha       = $request->fecha;
+        $salida->descripcion = $request->descripcion ?: null;
         $salida->save();
 
         return response()->json(['success' => 1]);
     }
-
 
     public function eliminarSalida(Request $request)
     {
@@ -393,17 +489,11 @@ class HistorialController extends Controller
             return response()->json(['success' => 0]);
         }
 
-        DB::beginTransaction();
-        try {
-            $salida->detalle()->delete();
-            $salida->delete();
-            DB::commit();
-            return response()->json(['success' => 1]);
-        } catch (\Throwable $e) {
-            DB::rollback();
-            Log::error('eliminarSalida: ' . $e->getMessage());
-            return response()->json(['success' => 99]);
-        }
+        // salidas_detalle apunta a salidas, hay que borrarla primero
+        $salida->detalle()->delete();
+        $salida->delete();
+
+        return response()->json(['success' => 1]);
     }
 
     public function detalleSalida(Request $request)
@@ -419,10 +509,10 @@ class HistorialController extends Controller
             ->get()
             ->map(function ($item) {
                 return [
-                    'id'              => $item->id,
-                    'material'        => $item->entradaDetalle->material->nombre ?? '',
-                    'cantidad_salida' => $item->cantidad_salida,
-                    'precio'          => number_format($item->entradaDetalle->precio ?? 0, 4),
+                    'codigo'         => $item->entradaDetalle->id_material ?? '',
+                    'material'       => $item->entradaDetalle->material->nombre ?? '',
+                    'cantidad_salida'=> $item->cantidad_salida,
+                    'precio'         => number_format($item->entradaDetalle->precio, 4),
                 ];
             });
 
@@ -435,11 +525,14 @@ class HistorialController extends Controller
 
     public function vistaExtrasSalida($id)
     {
-        $salida = Salidas::with('equipo')->find($id);
+        $salida = Salidas::with('tipoproyecto')->find($id);
 
-        if (!$salida) {
-            return redirect()->route('admin.historial.salidas.index');
+        if (!$salida || $salida->tipoproyecto->transferido == 1) {
+            return redirect()->route('admin.historial.salidas.index')
+                ->with('error', 'El proyecto está cerrado, no se pueden agregar extras');
         }
+
+
 
         return view('backend.admin.historial.salidas.vistaextrassalidas', compact('salida'));
     }
@@ -452,57 +545,40 @@ class HistorialController extends Controller
             return response()->json(['success' => 0]);
         }
 
+        if ($salida->tipoproyecto->transferido == 1) {
+            return response()->json(['success' => 0, 'mensaje' => 'El proyecto está cerrado']);
+        }
+
         $contenedor = json_decode($request->contenedorArray, true);
 
         if (empty($contenedor)) {
             return response()->json(['success' => 0]);
         }
 
-        // ── Agrupar por id_entrada_detalle para sumar si viene el mismo lote dos veces ──
-        $agrupado = [];
+        // Misma validación que el guardado original
         foreach ($contenedor as $index => $item) {
-            $id = $item['infoIdEntradaDeta'];
-            if (!isset($agrupado[$id])) {
-                $agrupado[$id] = ['cantidad' => 0, 'fila' => $index + 1];
-            }
-            $agrupado[$id]['cantidad'] += (int) $item['infoCantidad'];
-        }
+            $entradasDetalle = EntradasDetalle::find($item['infoIdEntradaDeta']);
 
-        // ── Validar disponibilidad ──
-        foreach ($agrupado as $idEntradaDeta => $datos) {
-            $entDetalle = EntradasDetalle::with('material')->find($idEntradaDeta);
-
-            if (!$entDetalle) {
-                return response()->json([
-                    'success' => 2,
-                    'fila'    => $datos['fila'],
-                    'msg'     => 'Material no encontrado en el lote.',
-                ]);
+            if (!$entradasDetalle) {
+                return response()->json(['success' => 2, 'fila' => $index + 1]);
             }
 
-            $totalSalido = SalidasDetalle::where('id_entrada_detalle', $entDetalle->id)
+            // Calcular cantidad disponible actual
+            $totalSalido = SalidasDetalle::where('id_entrada_detalle', $entradasDetalle->id)
                 ->sum('cantidad_salida');
 
-            $disponible = $entDetalle->cantidad_inicial - $totalSalido;
+            $disponible = $entradasDetalle->cantidad_inicial - $totalSalido;
 
-            if ($datos['cantidad'] > $disponible) {
-                return response()->json([
-                    'success'         => 2,
-                    'fila'            => $datos['fila'],
-                    'msg'             => 'Cantidad insuficiente.',
-                    'nombre_material' => $entDetalle->material->nombre ?? 'Material desconocido',
-                    'cantidad_pedida' => $datos['cantidad'],
-                    'disponible'      => (int) $disponible,
-                ]);
+            if ($item['infoCantidad'] > $disponible) {
+                return response()->json(['success' => 2, 'fila' => $index + 1]);
             }
         }
 
-        // ── Guardar ──
         foreach ($contenedor as $item) {
             SalidasDetalle::create([
                 'id_salida'          => $salida->id,
                 'id_entrada_detalle' => $item['infoIdEntradaDeta'],
-                'cantidad_salida'    => (int) $item['infoCantidad'],
+                'cantidad_salida'    => $item['infoCantidad'],
             ]);
         }
 
@@ -510,293 +586,706 @@ class HistorialController extends Controller
     }
 
 
-    public function eliminarDetalleSalida(Request $request)
-    {
-        $detalle = SalidasDetalle::find($request->id);
 
-        if (!$detalle) {
+
+
+
+
+
+    // ── Historial Transferencias ──────────────────────────────────────────────────
+
+    public function indexHistorialTransferencias()
+    {
+        // Solo proyectos que tienen al menos una transferencia registrada
+        $arrayProyectos = TipoProyecto::whereHas('transferencia')
+            ->orderBy('nombre')
+            ->get();
+
+        return view('backend.admin.historial.transferencias.vistahistorialtransferencia',
+            compact('arrayProyectos'));
+    }
+
+
+    public function tablaHistorialTransferencias(Request $request)
+    {
+        $arrayTransferencias = Transferencia::with([
+            'tipoproyecto',         // destino
+            'tipoproyectoOrigen',   // origen
+        ])
+
+            // Proyecto + tipo de búsqueda (origen | destino)
+            ->when($request->proyecto, function ($q) use ($request) {
+
+                $tipoBusqueda = $request->tipo_busqueda ?: 'origen';
+
+                if ($tipoBusqueda === 'destino') {
+
+                    // buscar por DESTINO
+                    if ($request->proyecto == 'general') {
+                        $q->where('tipo_salida', 'general');
+                    } else {
+                        $q->where('tipo_salida', '!=', 'general')
+                            ->where('id_tipoproyecto', $request->proyecto);
+                    }
+
+                } else {
+
+                    // buscar por ORIGEN
+                    if ($request->proyecto == 'general') {
+                        $q->where('tipo_salida', 'general');
+                    } else {
+                        $q->where('id_tipoproyecto_origen', $request->proyecto);
+                    }
+                }
+            })
+
+            // Tipo de salida (proyecto | general)
+            ->when($request->tipo_salida, function ($q) use ($request) {
+                $q->where('tipo_salida', $request->tipo_salida);
+            })
+
+            // Fecha desde
+            ->when($request->fecha_desde, function ($q) use ($request) {
+                $q->whereDate('fecha', '>=', $request->fecha_desde);
+            })
+
+            // Fecha hasta
+            ->when($request->fecha_hasta, function ($q) use ($request) {
+                $q->whereDate('fecha', '<=', $request->fecha_hasta);
+            })
+
+            // Material
+            ->when($request->material, function ($q) use ($request) {
+
+                $busqueda = '%' . trim($request->material) . '%';
+
+                $q->whereHas('detalle', function ($q2) use ($busqueda) {
+                    $q2->where('nombre_material', 'LIKE', $busqueda);
+                });
+            })
+
+            // Documento
+            ->when($request->documento, function ($q) use ($request) {
+
+                $q->where('documento', 'LIKE', '%' . trim($request->documento) . '%');
+            })
+
+            ->orderByDesc('fecha')
+            ->orderByDesc('id')
+            ->get()
+
+            ->map(function ($item) {
+
+                $item->fecha_fmt = date('d/m/Y', strtotime($item->fecha));
+
+                // Proyecto de ORIGEN (de donde vino el material)
+                $item->nombre_origen = $item->tipoproyectoOrigen?->nombre ?? '—';
+
+                // Proyecto de DESTINO (a donde se mandó)
+                $item->nombre_destino =
+                    $item->tipo_salida === 'general'
+                        ? 'Mantenimiento de instalaciones'
+                        : ($item->tipoproyecto?->nombre ?? '—');
+
+                // ¿Viene de un despacho de reserva? (sin datos para PDF)
+                $item->es_reserva = $item->origen_registro === 'reserva';
+
+                // ¿El material que entró al destino ya fue usado o reservado?
+                $item->se_puede_borrar = true;
+
+                if ($item->id_entrada) {
+                    $idsDetalle = EntradasDetalle::where('id_entradas', $item->id_entrada)
+                        ->pluck('id');
+
+                    $usado = SalidasDetalle::whereIn('id_entrada_detalle', $idsDetalle)
+                        ->sum('cantidad_salida');
+
+                    $reservado = Reserva::whereIn('id_entrada_detalle', $idsDetalle)
+                        ->sum('cantidad');
+
+                    if ($usado > 0 || $reservado > 0) {
+                        $item->se_puede_borrar = false;
+                    }
+                }
+
+                return $item;
+            });
+
+        return view(
+            'backend.admin.historial.transferencias.tablahistorialtransferencia',
+            compact('arrayTransferencias')
+        );
+    }
+
+
+    public function informacionTransferencia(Request $request)
+    {
+        $transferencia = Transferencia::find($request->id);
+
+        if (!$transferencia) {
+            return response()->json(['success' => 0]);
+        }
+
+        return response()->json([
+            'success'       => 1,
+            'transferencia' => [
+                'id'          => $transferencia->id,
+                'fecha'       => $transferencia->fecha,
+                'descripcion' => $transferencia->descripcion,
+                'documento'   => $transferencia->documento,
+            ]
+        ]);
+    }
+
+    public function eliminarTransferencia(Request $request)
+    {
+        $transferencia = Transferencia::find($request->id);
+
+        if (!$transferencia) {
             return response()->json(['success' => 0]);
         }
 
         DB::beginTransaction();
+
         try {
-            $salidaId = $detalle->id_salida;
-            $detalle->delete();
 
-            $quedan = SalidasDetalle::where('id_salida', $salidaId)->count();
+            $idSalida  = $transferencia->id_salida;
+            $idEntrada = $transferencia->id_entrada;
 
-            if ($quedan === 0) {
-                Salidas::where('id', $salidaId)->delete();
-                DB::commit();
-                return response()->json(['success' => 1, 'salida_borrada' => true]);
+            // ==========================================================
+            // 1) VALIDACION: el material que entro al proyecto destino
+            //    NO debe haber sido usado todavia.
+            //    Si ya tiene salidas o reservas, no se puede deshacer.
+            // ==========================================================
+            if ($idEntrada) {
+
+                $detallesEntrada = EntradasDetalle::where(
+                    'id_entradas',
+                    $idEntrada
+                )->get();
+
+                foreach ($detallesEntrada as $entDet) {
+
+                    $usado = SalidasDetalle::where(
+                        'id_entrada_detalle',
+                        $entDet->id
+                    )->sum('cantidad_salida');
+
+                    $reservado = Reserva::where(
+                        'id_entrada_detalle',
+                        $entDet->id
+                    )->sum('cantidad');
+
+                    if ($usado > 0 || $reservado > 0) {
+                        DB::rollback();
+                        return response()->json([
+                            'success'         => 2,
+                            'nombre_material' => $entDet->nombre,
+                        ]);
+                    }
+                }
             }
 
+            // ==========================================================
+            // 2) BORRAR SALIDA (la del proyecto cerrado / origen)
+            //    Primero los detalles, luego la cabecera.
+            // ==========================================================
+            if ($idSalida) {
+                SalidasDetalle::where('id_salida', $idSalida)->delete();
+                Salidas::where('id', $idSalida)->delete();
+            }
+
+            // ==========================================================
+            // 3) BORRAR ENTRADA (la del proyecto destino)
+            //    Solo existe en transferencia a proyecto.
+            // ==========================================================
+            if ($idEntrada) {
+                EntradasDetalle::where('id_entradas', $idEntrada)->delete();
+                Entradas::where('id', $idEntrada)->delete();
+            }
+
+            // ==========================================================
+            // 4) BORRAR EL HISTORIAL (transferencia + detalle)
+            // ==========================================================
+            $transferencia->detalle()->delete();
+            $transferencia->delete();
+
             DB::commit();
-            return response()->json(['success' => 1, 'salida_borrada' => false]);
+
+            return response()->json(['success' => 1]);
 
         } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('eliminarDetalleSalida: ' . $e->getMessage());
+
+            DB::rollback();
+
+            Log::error(
+                'eliminarTransferencia: ' . $e->getMessage()
+            );
+
             return response()->json(['success' => 99]);
         }
     }
 
-
-    public function buscadorMaterialGetNombre(Request $request)
+    public function detalleTransferencia(Request $request)
     {
-        if (!$request->get('query')) return response()->json([]);
+        $transferencia = Transferencia::find($request->id);
 
-        $query = $request->get('query');
+        if (!$transferencia) {
+            return response()->json(['success' => 0]);
+        }
 
-        $materiales = Materiales::where('nombre', 'LIKE', "%{$query}%")
-            ->orderBy('nombre')
-            ->limit(20)
-            ->pluck('nombre');
+        $detalle = $transferencia->detalle()
+            ->with([
+                // Cargamos entradaDetalle → material → objetoEspecifico → cuenta → rubro
+                'entradaDetalle.material.objetoEspecifico.cuenta'
+            ])
+            ->get()
+            ->map(function ($item) {
+                $ed       = $item->entradaDetalle;
+                $material = $ed?->material;
+                $objEsp   = $material?->objetoEspecifico;
 
-        return response()->json($materiales);
-    }
+                return [
+                    // nombre_material guardado en transferencia_detalle como snapshot
+                    // si está vacío caemos al nombre vivo del material
+                    'nombre_material'   => $item->nombre_material
+                        ?: ($material?->nombre ?? '—'),
+                    'objeto_especifico' => $objEsp
+                        ? $objEsp->codigo . ' — ' . $objEsp->nombre
+                        : '—',
+                    'cantidad_sobrante' => $item->cantidad_sobrante,
+                    'precio'            => number_format($item->precio, 4),
+                ];
+            });
 
-
-    public function editarCantidadSalida(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'id'       => 'required|integer',
-            'cantidad' => 'required|integer|min:1',
+        return response()->json([
+            'success' => 1,
+            'detalle' => $detalle,
         ]);
-
-        if ($validator->fails()) {
-            return response()->json(['success' => 0, 'mensaje' => 'Datos inválidos']);
-        }
-
-        $detalle = SalidasDetalle::find($request->id);
-
-        if (!$detalle) {
-            return response()->json(['success' => 0, 'mensaje' => 'Registro no encontrado']);
-        }
-
-        // Disponible real = cantidad_inicial - todo lo salido de otros registros (excluye el actual)
-        $disponibleReal = DB::table('entradas_detalle as ed')
-            ->leftJoin(
-                DB::raw('(
-                SELECT id_entrada_detalle, SUM(cantidad_salida) as total_salido
-                FROM salidas_detalle
-                WHERE id != ' . (int)$detalle->id . '
-                GROUP BY id_entrada_detalle
-            ) as sd'),
-                'sd.id_entrada_detalle', '=', 'ed.id'
-            )
-            ->where('ed.id', $detalle->id_entrada_detalle)
-            ->selectRaw('(ed.cantidad_inicial - COALESCE(sd.total_salido, 0)) as disponible')
-            ->value('disponible');
-
-        if (is_null($disponibleReal) || $request->cantidad > $disponibleReal) {
-            return response()->json([
-                'success'    => 2,
-                'disponible' => (int)$disponibleReal,
-                'mensaje'    => 'Cantidad supera el disponible. Máximo permitido: ' . (int)$disponibleReal,
-            ]);
-        }
-
-        $detalle->cantidad_salida = $request->cantidad;
-        $detalle->save();
-
-        return response()->json(['success' => 1]);
     }
 
 
 
-    public function generarPDFSalidaGuardado($id)
+    public function actaDesdeHistorial($id)
     {
-        $salida = Salidas::with(['detalle.entradaDetalle.material.unidadMedida'])->findOrFail($id);
+        $transferencia = Transferencia::find($id);
 
-        $infoGeneral = InformacionGeneral::where('id', 1)->first();
+        if (!$transferencia) {
+            abort(404, 'Transferencia no encontrada');
+        }
 
-        $fechaFmt        = $salida->fecha ? date('d/m/Y', strtotime($salida->fecha)) : '';
-        $logoalcaldia    = 'images/logo.png';
-        $autorizaEntrega = htmlspecialchars($salida->autoriza_a    ?? '');
-        $peticionDe      = htmlspecialchars($salida->peticion_a    ?? '');
-        $paraUsoEn       = htmlspecialchars($salida->para_uso      ?? '');
-        $firmaDerecha    = htmlspecialchars($salida->nombre_firma_1 ?? '');
+        if ($transferencia->origen_registro === 'reserva') {
+            abort(404); // o redirigir con un mensaje
+        }
+
+        $informacionGeneral = InformacionGeneral::where('id', 1)->first();
+        $logoalcaldia       = 'images/logo.png';
+
+        // ── Datos del proyecto origen ─────────────────────────────────
+        $proyectoOrigen = Tipoproyecto::find($transferencia->id_tipoproyecto_origen);
+        $nombreProyecto = $proyectoOrigen?->nombre ?? '—';
+        $fechaFormat    = date('d/m/Y', strtotime($transferencia->fecha));
+
+        // ── Datos del acta desde la tabla salidas ─────────────────────
+        $numero        = '';
+        $referencia    = '';
+        $depto         = '';
+        $nombreSolic   = '';
+        $cargoSolic    = '';
+
+        $firma_1 = '';
+        $firma_2 = '';
+
+
+
+        $tipodestino   = $transferencia->tipo_salida === 'general'
+            ? 'Salida General — Mantenimiento de Instalaciones Municipales'
+            : ('Transferencia a Proyecto: ' . (Tipoproyecto::find($transferencia->id_tipoproyecto)?->nombre ?? '—'));
+
+        if ($transferencia->id_salida) {
+            $salida = Salidas::find($transferencia->id_salida);
+
+            if ($salida) {
+                $numero        = $salida->acta_numero      ?? '';
+                $referencia    = $salida->acta_referencia  ?? '';
+                $nombreSolic   = $salida->acta_nombre_solic ?? '';
+                $cargoSolic    = $salida->acta_cargo_solic  ?? '';
+                $observaciones = $salida->acta_observaciones ?? '';
+                $tipodestino   = $salida->acta_tipo_destino ?? $tipodestino;
+                $firma_1       = $salida->firma_1 ?? '';
+                $firma_2       = $salida->firma_2 ?? '';
+
+                if ($salida->acta_id_departamento) {
+                    $deptoDB = DB::table('departamentos')
+                        ->where('id', $salida->acta_id_departamento)
+                        ->first();
+                    $depto = $deptoDB?->nombre ?? '';
+                }
+            }
+        }
+
+        // ── Materiales desde transferencia_detalle ────────────────────
+        $detalles = TransferenciaDetalle::where('id_transferencia', $id)->get();
+
+        $rows = [];
+
+        foreach ($detalles as $det) {
+            $codigo = '—';
+            $medida = '—';
+            $precio = $det->precio ?? 0;
+
+            $entDet = EntradasDetalle::with([
+                'material.unidadMedida',
+                'material.objetoEspecifico',
+            ])->find($det->id_entrada_detalle);
+
+            if ($entDet) {
+                if ($entDet->material?->objetoEspecifico) {
+                    $codigo = $entDet->material->objetoEspecifico->codigo ?? '—';
+                } elseif (!empty($entDet->material?->id_objespecifico)) {
+                    $objEsp = DB::table('objeto_especifico')
+                        ->where('id', $entDet->material->id_objespecifico)
+                        ->first();
+                    $codigo = $objEsp?->codigo ?? '—';
+                }
+
+                $medida = $entDet->material?->unidadMedida?->nombre ?? '—';
+
+                if ($precio == 0) {
+                    $precio = $entDet->precio ?? 0;
+                }
+            }
+
+            $cantidad = (int) ($det->cantidad_sobrante ?? 0);
+            $subtotal = $cantidad * $precio;
+
+            $rows[] = [
+                'codigo'   => $codigo,
+                'nombre'   => $det->nombre_material ?? $entDet?->nombre ?? '—',
+                'medida'   => $medida,
+                'cantidad' => $cantidad,
+                'precio'   => $precio,
+                'subtotal' => $subtotal,
+            ];
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // CONSTRUCCIÓN DEL HTML
+        // ═══════════════════════════════════════════════════════════════
+        $thStyle = "font-weight:bold; font-size:10px; border:0.8px solid #000;
+                    padding:4px; background:#d9e1f2; text-align:center;";
+        $tdStyle = "font-size:10px; border:0.8px solid #000; padding:4px;";
+        $tdC     = $tdStyle . " text-align:center;";
+        $tdR     = $tdStyle . " text-align:right;";
 
         // ── Encabezado ────────────────────────────────────────────────
         $html = "
-<table width='100%' style='border-collapse:collapse; font-family:Arial, sans-serif;'>
+<table width='100%' style='border-collapse:collapse; font-family:Arial,sans-serif;'>
     <tr>
         <td style='width:25%; border:0.8px solid #000; padding:6px 8px;'>
             <table width='100%'>
                 <tr>
-                    <td style='width:30%; text-align:left;'>
+                    <td style='width:35%; text-align:left;'>
                         <img src='{$logoalcaldia}' style='height:38px'>
                     </td>
-                    <td style='width:70%; text-align:left; color:#104e8c; font-size:13px; font-weight:bold; line-height:1.3;'>
+                    <td style='width:65%; text-align:left; color:#104e8c;
+                                font-size:12px; font-weight:bold; line-height:1.3;'>
                         SANTA ANA NORTE<br>EL SALVADOR
                     </td>
                 </tr>
             </table>
         </td>
         <td style='width:50%; border-top:0.8px solid #000; border-bottom:0.8px solid #000;
-             padding:6px 8px; text-align:center; font-size:15px; font-weight:bold;'>
-            FORMULARIO ENTREGA DE<br>MATERIALES DE BODEGA
+                   padding:6px 8px; text-align:center; font-size:15px; font-weight:bold;'>
+            ACTA DE RECEPCIÓN DE<br>MATERIALES SOBRANTES
         </td>
         <td style='width:25%; border:0.8px solid #000; padding:0; vertical-align:top;'>
             <table width='100%' style='font-size:10px;'>
                 <tr>
-                    <td width='40%' style='border-right:0.8px solid #000; border-bottom:0.8px solid #000; padding:4px 6px;'><strong>Código:</strong></td>
-                    <td width='60%' style='border-bottom:0.8px solid #000; padding:4px 6px; text-align:center;'>MANB-002-FORM</td>
+                    <td width='40%' style='border-right:0.8px solid #000;
+                                           border-bottom:0.8px solid #000; padding:4px 6px;'>
+                        <strong>Código:</strong>
+                    </td>
+                    <td width='60%' style='border-bottom:0.8px solid #000;
+                                           padding:4px 6px; text-align:center;'>GEAD-002-ACTA</td>
                 </tr>
                 <tr>
-                    <td style='border-right:0.8px solid #000; border-bottom:0.8px solid #000; padding:4px 6px;'><strong>Versión:</strong></td>
-                    <td style='border-bottom:0.8px solid #000; padding:4px 6px; text-align:center;'>000</td>
+                    <td style='border-right:0.8px solid #000;
+                               border-bottom:0.8px solid #000; padding:4px 6px;'>
+                        <strong>Versión:</strong>
+                    </td>
+                    <td style='border-bottom:0.8px solid #000;
+                               padding:4px 6px; text-align:center;'>000</td>
                 </tr>
                 <tr>
-                    <td style='border-right:0.8px solid #000; padding:4px 6px;'><strong>Fecha de vigencia:</strong></td>
-                    <td style='padding:4px 6px; text-align:center;'>22/10/2025</td>
+                    <td style='border-right:0.8px solid #000; padding:4px 6px;'>
+                        <strong>Fecha de vigencia:</strong>
+                    </td>
+                    <td style='padding:4px 6px; text-align:center;'></td>
                 </tr>
             </table>
         </td>
     </tr>
-</table>
-<br>";
+</table><br>";
 
-        // ── Fecha ─────────────────────────────────────────────────────
+        // ── No. Acta y Fecha ──────────────────────────────────────────
         $html .= "
-<table width='100%' style='font-family:Arial, sans-serif; font-size:13px; border-collapse:collapse;'>
+<table width='100%' style='border-collapse:collapse; margin-bottom:4px; margin-top:6px;'>
     <tr>
-        <td width='100%' style='text-align:right;'>
-            <strong>FECHA:</strong> {$fechaFmt}
+        <td style='width:20%; border:0.8px solid #ccc; padding:5px 8px;
+                   font-size:11px; font-weight:bold; background:#f5f5f5;'>
+            NO. DE ACTA DE RECEPCIÓN:
+        </td>
+        <td style='width:44%; border:0.8px solid #ccc; padding:5px 8px; font-size:11px;'>
+            " . htmlspecialchars($numero) . "
+        </td>
+        <td style='width:5%; border:none;'></td>
+        <td style='width:13%; border:0.8px solid #000; padding:5px 8px;
+                   font-size:11px; font-weight:bold; text-align:center; background:#f5f5f5;'>
+            FECHA:
+        </td>
+        <td style='width:18%; border:0.8px solid #000; padding:5px 8px;
+                   font-size:11px; text-align:center;'>
+            {$fechaFormat}
         </td>
     </tr>
-</table>
+</table>";
 
-<table width='100%' style='font-family:Arial, sans-serif;'>
+        // ── Campos del acta ───────────────────────────────────────────
+        $campos = [
+            'PROYECTO DE ORIGEN DE LOS MATERIALES' => $nombreProyecto,
+            'REFERENCIA DE LA SOLICITUD'            => $referencia,
+            'TIPO DE DESTINO / USO'                 => $tipodestino,
+            'UNIDAD SOLICITANTE'                    => $depto,
+            'NOMBRE DE SOLICITANTE'                 => $nombreSolic,
+            'CARGO DE SOLICITANTE'                  => $cargoSolic,
+        ];
+
+        $html .= "<table width='100%' style='border-collapse:collapse; margin-bottom:4px;'>";
+        foreach ($campos as $label => $valor) {
+            $html .= "
     <tr>
-        <td align='left'>
-            <div style='border-top:1px solid #000; width:250px;'></div>
-            <div style='margin-top:5px; font-size:13px; font-weight:normal;'>
-                {$infoGeneral->encabezado}
-            </div>
+        <td style='width:25%; border:0.8px solid #ccc; padding:5px 8px;
+                   font-size:11px; font-weight:bold; background:#f5f5f5;'>
+            {$label}:
+        </td>
+        <td style='border:0.8px solid #ccc; padding:5px 8px; font-size:11px;'>
+            " . htmlspecialchars($valor) . "
+        </td>
+    </tr>";
+        }
+        $html .= "</table>";
+
+        // ── Texto declaración ─────────────────────────────────────────
+        $html .= "
+<table width='100%' style='border-collapse:collapse; margin-bottom:8px; margin-top:4px;'>
+    <tr>
+        <td style='border:0.8px solid #000; padding:8px 10px; font-size:10px;
+                   text-align:justify; line-height:1.6;'>
+            POR MEDIO DEL PRESENTE, EL RESPONSABLE DE LA BODEGA DE PROYECTOS O RESPONSABLE ASIGNADO
+            HACE ENTREGA FORMAL DE LOS MATERIALES DETALLADOS EN EL FORMULARIO DE SOLICITUD. POR SU PARTE,
+            EL RESPONSABLE QUE RECIBE DECLARA LA RECEPCIÓN CONFORME DE LOS MISMOS, ASUMIENDO LA CUSTODIA
+            Y RESPONSABILIDAD PARA SU USO EXCLUSIVO EN EL DESTINO ESPECIFICADO Y SE COMPROMETE A REALIZAR
+            LOS REGISTROS DE CONSUMO CORRESPONDIENTES.
         </td>
     </tr>
-</table>
-<br>";
-
-        // ── Autoriza / Petición / Uso ─────────────────────────────────
-        $html .= "
-<table width='100%' style='font-family:Arial, sans-serif; font-size:13px; border-collapse:collapse;'>
-    <tr>
-        <td style='white-space:nowrap; padding:3px 0; width:210px;'>Autoriza la entrega de materiales a:</td>
-        <td style='padding:3px 6px;'>{$autorizaEntrega}</td>
-    </tr>
-    <tr>
-        <td style='white-space:nowrap; padding:3px 0;'>A petición de:</td>
-        <td style='padding:3px 6px;'>{$peticionDe}</td>
-    </tr>
-    <tr>
-        <td style='white-space:nowrap; padding:3px 0;'>Para uso en:</td>
-        <td style='padding:3px 6px;'>{$paraUsoEn}</td>
-    </tr>
-    <tr>
-        <td style='padding:5px 0;' colspan='2'>Según el siguiente detalle:</td>
-    </tr>
-</table>
-<br>";
+</table>";
 
         // ── Tabla de materiales ───────────────────────────────────────
+        // Ordenar las filas por código presupuestario para poder agrupar
+        usort($rows, function ($a, $b) {
+            return strcmp($a['codigo'], $b['codigo']);
+        });
+
+        $granTotal = 0;
+        foreach ($rows as $r) {
+            $granTotal += $r['subtotal'];
+        }
+
         $html .= "
-<table width='100%' style='border-collapse:collapse; font-family:Arial, sans-serif; font-size:11px;'>
+<table width='100%' style='border-collapse:collapse;'>
     <thead>
         <tr>
-            <th style='width:5%;  border:0.8px solid #000; padding:5px 4px; text-align:center; background:#e8e8e8; font-size:12px'>N°</th>
-            <th style='width:42%; border:0.8px solid #000; padding:5px 8px; text-align:center; background:#e8e8e8; font-size:12px'>DESCRIPCION</th>
-            <th style='width:16%; border:0.8px solid #000; padding:5px 4px; text-align:center; background:#e8e8e8; font-size:12px'>UNIDAD DE MEDIDA</th>
-            <th style='width:10%; border:0.8px solid #000; padding:5px 4px; text-align:center; background:#e8e8e8; font-size:12px'>CANTIDAD</th>
-            <th style='width:27%; border:0.8px solid #000; padding:5px 8px; text-align:center; background:#e8e8e8; font-size:12px'>OBSERVACIONES</th>
+            <th style='{$thStyle} width:5%;'>No.</th>
+            <th style='{$thStyle} width:10%;'>COD PRESUP.</th>
+            <th style='{$thStyle} width:35%;'>DESCRIPCIÓN</th>
+            <th style='{$thStyle} width:12%;'>U. DE MEDIDA</th>
+            <th style='{$thStyle} width:10%;'>CANTIDAD</th>
+            <th style='{$thStyle} width:13%;'>PRECIO UNITARIO</th>
+            <th style='{$thStyle} width:15%;'>SUBTOTAL</th>
         </tr>
     </thead>
     <tbody>";
 
-        $num = 0;
-        foreach ($salida->detalle as $det) {
-            $num++;
-            $cantidad    = $det->cantidad_salida;
-            $observacion = htmlspecialchars($det->observaciones ?? '');
-            $nombreMat   = '';
-            $unidadMed   = '';
+        $i             = 1;
+        $codigoActual  = null;
+        $subtotalGrupo = 0;
 
-            if ($det->entradaDetalle && $det->entradaDetalle->material) {
-                $mat       = $det->entradaDetalle->material;
-                $nombreMat = htmlspecialchars($mat->nombre);
-                $unidadMed = htmlspecialchars($mat->unidadMedida->nombre ?? '');
+        // Función auxiliar para imprimir la fila de subtotal de un código
+        $filaSubtotal = function ($codigo, $monto) {
+            return "
+        <tr>
+            <td colspan='6' style='font-weight:bold; font-size:10px; text-align:center;
+                                    border:0.8px solid #000; padding:4px; background:#f2f4f8;'>
+                SUBTOTAL [" . htmlspecialchars($codigo) . "]
+            </td>
+            <td style='font-weight:bold; font-size:10px; text-align:right;
+                        border:0.8px solid #000; padding:4px; background:#f2f4f8;'>
+                $ " . number_format($monto, 4) . "
+            </td>
+        </tr>";
+        };
+
+        foreach ($rows as $r) {
+
+            // Si cambió el código (y no es la primera fila), cerrar el grupo anterior
+            if ($codigoActual !== null && $r['codigo'] !== $codigoActual) {
+                $html .= $filaSubtotal($codigoActual, $subtotalGrupo);
+                $subtotalGrupo = 0;
             }
+
+            $codigoActual   = $r['codigo'];
+            $subtotalGrupo += $r['subtotal'];
 
             $html .= "
         <tr>
-            <td style='border:0.8px solid #000; padding:4px; text-align:center; vertical-align:middle; font-size:13px'>{$num}</td>
-            <td style='border:0.8px solid #000; padding:4px; text-align:left; vertical-align:middle; font-size:13px;'>{$nombreMat}</td>
-            <td style='border:0.8px solid #000; padding:4px; text-align:center; vertical-align:middle; font-size:13px;'>{$unidadMed}</td>
-            <td style='border:0.8px solid #000; padding:4px; text-align:center; vertical-align:middle; font-size:13px'>{$cantidad}</td>
-            <td style='border:0.8px solid #000; padding:4px 8px; vertical-align:middle; text-align:left; font-size:13px'>{$observacion}</td>
+            <td style='{$tdC}'>{$i}</td>
+            <td style='{$tdC}'>" . htmlspecialchars($r['codigo']) . "</td>
+            <td style='{$tdStyle}'>" . htmlspecialchars($r['nombre']) . "</td>
+            <td style='{$tdC}'>" . htmlspecialchars($r['medida']) . "</td>
+            <td style='{$tdC} font-weight:bold;'>" . number_format($r['cantidad']) . "</td>
+            <td style='{$tdR}'>$ " . number_format($r['precio'], 4) . "</td>
+            <td style='{$tdR}'>$ " . number_format($r['subtotal'], 4) . "</td>
         </tr>";
+            $i++;
+        }
+
+        // Cerrar el subtotal del último grupo (si hubo filas)
+        if ($codigoActual !== null) {
+            $html .= $filaSubtotal($codigoActual, $subtotalGrupo);
         }
 
         $html .= "
+        <tr>
+            <td colspan='6' style='font-weight:bold; font-size:11px; text-align:center;
+                                    border:0.8px solid #000; padding:5px; background:#d9e1f2;'>
+                TOTAL GENERAL
+            </td>
+            <td style='font-weight:bold; font-size:11px; text-align:right;
+                        border:0.8px solid #000; padding:5px; background:#d9e1f2;'>
+                $ " . number_format($granTotal, 4) . "
+            </td>
+        </tr>
     </tbody>
-</table>
-<br>";
+</table>";
 
-        // ── Pie de página ─────────────────────────────────────────────
+        // ── Observaciones ─────────────────────────────────────────────
         $html .= "
-<table width='100%' style='font-family:Arial, sans-serif;'>
-    <tr>
-        <td align='left'>
-            <div style='margin-top:5px; font-size:12px;'>
-                {$infoGeneral->pie_pagina}
-            </div>
-        </td>
-    </tr>
-</table>
-<br><br><br>";
+            <br>
+            <table width='100%' border='1' cellspacing='0' cellpadding='6'
+                   style='border-collapse:collapse; font-size:11px;'>
+                <tr style='background:#f2f4f8;'>
+                    <td style='font-weight:bold;'>OBSERVACIONES:</td>
+                </tr>
+                <tr>
+                    <td style='height:40px; vertical-align:top;'>" . htmlspecialchars($observaciones) . "</td>
+                </tr>
+            </table>";
 
         // ── Firmas ────────────────────────────────────────────────────
-        $firmaDerTexto = $firmaDerecha ?: '________________________________';
+        $px = $informacionGeneral->px_firmas ?? 40;
 
         $html .= "
-<table width='100%' style='margin-top:" . ($infoGeneral->px_firmas ?? 0) . "px; font-family:Arial, sans-serif; font-size:11px; border-collapse:collapse;'>
+<table width='100%' style='border-collapse:collapse; font-family:Arial,sans-serif;
+                            margin-top:{$px}px; font-size:22px; line-height:1.8;'>
     <tr>
-        <td width='40%' style='text-align:center; padding-bottom:4px;'>________________________________</td>
-        <td width='20%'></td>
-        <td width='40%' style='text-align:center; padding-bottom:4px;'>________________________________</td>
-    </tr>
-    <tr>
-        <td style='text-align:center; font-size:12px; padding-top:6px;'>{$salida->nombre_firma_1}</td>
-        <td></td>
-        <td style='text-align:center; font-size:12px; padding-top:6px;'>{$salida->nombre_firma_3}</td>
-    </tr>
-    <tr>
-        <td style='text-align:center; font-size:12px; font-weight:bold;'>{$salida->nombre_firma_2}</td>
-        <td></td>
-        <td></td>
+        <td style='width:50%; padding-right:50px; vertical-align:top;'>
+            <strong style='font-size:28px;'>ENTREGADO POR:</strong><br><br>
+
+            <table width='100%' style='border-collapse:collapse; font-size:28px;'>
+                <tr>
+                    <td style='width:22%; padding-bottom:14px; font-weight:bold;'>FIRMA:</td>
+                    <td style='border-bottom:1.5px solid #000; width:78%;'>&nbsp;</td>
+                </tr>
+
+                <tr><td colspan='2' style='height:45px;'></td></tr>
+
+                <tr>
+                    <td style='padding-bottom:14px; font-weight:bold;'>NOMBRE:</td>
+                    <td style='border-bottom:1.5px solid #000;'>&nbsp;</td>
+                </tr>
+
+                <tr><td colspan='2' style='height:45px;'></td></tr>
+
+                <tr>
+                    <td style='padding-bottom:14px; font-weight:bold;'>CARGO:</td>
+                    <td style='border-bottom:1.5px solid #000;'>&nbsp;</td>
+                </tr>
+
+                <tr><td colspan='2' style='height:45px;'></td></tr>
+
+                <tr>
+                    <td colspan='2'
+                        style='text-align:center; font-size:26px; font-weight:normal; line-height:1.5;'>
+                        $firma_1
+                    </td>
+                </tr>
+            </table>
+        </td>
+
+        <td style='width:50%; padding-left:50px; vertical-align:top;'>
+            <strong style='font-size:28px;'>RECIBIDO POR:</strong><br><br>
+
+            <table width='100%' style='border-collapse:collapse; font-size:28px;'>
+                <tr>
+                    <td style='width:22%; padding-bottom:14px; font-weight:bold;'>FIRMA:</td>
+                    <td style='border-bottom:1.5px solid #000; width:78%;'>&nbsp;</td>
+                </tr>
+
+                <tr><td colspan='2' style='height:45px;'></td></tr>
+
+                <tr>
+                    <td style='padding-bottom:14px; font-weight:bold;'>NOMBRE:</td>
+                    <td style='border-bottom:1.5px solid #000;'>&nbsp;</td>
+                </tr>
+
+                <tr><td colspan='2' style='height:45px;'></td></tr>
+
+                <tr>
+                    <td style='padding-bottom:14px; font-weight:bold;'>CARGO:</td>
+                    <td style='border-bottom:1.5px solid #000;'>&nbsp;</td>
+                </tr>
+
+                <tr><td colspan='2' style='height:45px;'></td></tr>
+
+                <tr>
+                    <td colspan='2'
+                        style='text-align:center; font-size:26px; font-weight:normal; line-height:1.5;'>
+                        $firma_2
+                    </td>
+                </tr>
+            </table>
+        </td>
     </tr>
 </table>";
 
         // ── Generar PDF ───────────────────────────────────────────────
         $mpdf = new \Mpdf\Mpdf([
-            'tempDir'       => sys_get_temp_dir(),
-            'format'        => 'LETTER',
-            'margin_top'    => 15,
-            'margin_bottom' => 15,
-            'margin_left'   => 15,
-            'margin_right'  => 15,
+            'tempDir'     => sys_get_temp_dir(),
+            'format'      => 'LETTER',
+            'orientation' => 'P',
         ]);
-
-        $mpdf->SetTitle('Formulario de Salida de Bodega');
+        $mpdf->SetTitle('GEAD-002-ACTA');
         $mpdf->showImageErrors = false;
-
-        $stylesheet = file_get_contents('css/cssregistro.css');
-        $mpdf->WriteHTML($stylesheet, 1);
-        $mpdf->WriteHTML($html, 2);
-        $mpdf->Output('salida_bodega_' . $salida->id . '_' . date('Ymd') . '.pdf', 'I');
+        $mpdf->setFooter("Página {PAGENO} de {nb}");
+        $mpdf->WriteHTML($html, \Mpdf\HTMLParserMode::HTML_BODY);
+        $mpdf->Output();
     }
+
+
+
+
+
 
 
 

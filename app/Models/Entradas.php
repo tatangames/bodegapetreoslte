@@ -12,21 +12,26 @@ class Entradas extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'id_proveedor',
+        'id_tipoproyecto',
         'fecha',
         'descripcion',
         'factura',
+        'es_transferencia',
+        'id_tipoproyecto_transferencia',
     ];
+
+    public function tipoproyecto()
+    {
+        return $this->belongsTo(TipoProyecto::class, 'id_tipoproyecto');
+    }
+
+    public function tipoproyectoTransferencia()
+    {
+        return $this->belongsTo(TipoProyecto::class, 'id_tipoproyecto_transferencia');
+    }
 
     public function detalle()
     {
         return $this->hasMany(EntradasDetalle::class, 'id_entradas');
     }
-
-
-    public function proveedor()
-    {
-        return $this->belongsTo(Proveedor::class, 'id_proveedor');
-    }
-
 }

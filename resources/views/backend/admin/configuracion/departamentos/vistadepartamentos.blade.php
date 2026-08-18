@@ -1,9 +1,9 @@
 @extends('adminlte::page')
 
-@section('title', 'Proveedor')
+@section('title', 'Unidades')
 
 @section('content_header')
-    <h1>Proveedores</h1>
+    <h1>Unidades</h1>
 @stop
 
 
@@ -83,7 +83,7 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h4 class="modal-title">Nuevo Registro</h4>
+                    <h4 class="modal-title">Nuevo</h4>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -97,11 +97,6 @@
                                     <div class="form-group">
                                         <label>Nombre <span style="color: red">*</span> </label>
                                         <input type="text" maxlength="100" class="form-control" id="nombre-nuevo" autocomplete="off">
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label>Teléfono (Opcional)</label>
-                                        <input type="text" maxlength="20" class="form-control" id="telefono-nuevo" autocomplete="off">
                                     </div>
 
                                 </div>
@@ -143,11 +138,6 @@
                                         <input type="text" maxlength="100" class="form-control" id="nombre-editar" autocomplete="off">
                                     </div>
 
-                                    <div class="form-group">
-                                        <label>Teléfono (Opcional) </label>
-                                        <input type="text" maxlength="20" class="form-control" id="telefono-editar" autocomplete="off">
-                                    </div>
-
                                 </div>
                             </div>
                         </div>
@@ -172,7 +162,7 @@
 
         <script>
             $(function () {
-                const ruta = "{{ url('/admin/proveedor/tabla/index') }}";
+                const ruta = "{{ url('/admin/departamentos/tabla/index') }}";
 
                 function initDataTable() {
                     // Si ya hay instancia, destrúyela antes de re-crear
@@ -234,7 +224,7 @@
     <script>
 
         function recargar(){
-            var ruta = "{{ url('/admin/proveedor/tabla/index') }}";
+            var ruta = "{{ url('/admin/departamentos/tabla/index') }}";
             $('#tablaDatatable').load(ruta);
         }
 
@@ -245,7 +235,6 @@
 
         function nuevo(){
             var nombre = document.getElementById('nombre-nuevo').value;
-            var telefono = document.getElementById('telefono-nuevo').value;
 
             if(nombre === ''){
                 toastr.error('Nombre es requerido');
@@ -255,9 +244,8 @@
             openLoading();
             var formData = new FormData();
             formData.append('nombre', nombre);
-            formData.append('telefono', telefono);
 
-            axios.post(urlAdmin+'/admin/proveedor/nuevo', formData, {
+            axios.post(urlAdmin+'/admin/departamentos/nuevo', formData, {
             })
                 .then((response) => {
                     closeLoading();
@@ -280,7 +268,7 @@
             openLoading();
             document.getElementById("formulario-editar").reset();
 
-            axios.post(urlAdmin+'/admin/proveedor/informacion',{
+            axios.post(urlAdmin+'/admin/departamentos/informacion',{
                 'id': id
             })
                 .then((response) => {
@@ -289,7 +277,7 @@
                         $('#modalEditar').modal('show');
                         $('#id-editar').val(response.data.info.id);
                         $('#nombre-editar').val(response.data.info.nombre);
-                        $('#telefono-editar').val(response.data.info.telefono);
+
                     }else{
                         toastr.error('Información no encontrada');
                     }
@@ -303,7 +291,6 @@
         function editar(){
             var id = document.getElementById('id-editar').value;
             var nombre = document.getElementById('nombre-editar').value;
-            var telefono = document.getElementById('telefono-editar').value;
 
             if(nombre === ''){
                 toastr.error('Nombre es requerido');
@@ -314,12 +301,12 @@
             var formData = new FormData();
             formData.append('id', id);
             formData.append('nombre', nombre);
-            formData.append('telefono', telefono);
 
-            axios.post(urlAdmin+'/admin/proveedor/editar', formData, {
+            axios.post(urlAdmin+'/admin/departamentos/editar', formData, {
             })
                 .then((response) => {
                     closeLoading();
+
                     if(response.data.success === 1){
                         toastr.success('Actualizado correctamente');
                         $('#modalEditar').modal('hide');
@@ -328,12 +315,16 @@
                     else {
                         toastr.error('Error al actualizar');
                     }
+
                 })
                 .catch((error) => {
                     toastr.error('Error al actualizar');
                     closeLoading();
                 });
         }
+
+
     </script>
+
 
 @endsection

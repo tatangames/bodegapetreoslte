@@ -107,7 +107,18 @@
                 <button type="button" onclick="modalAgregar()" class="btn btn-dark btn-sm mr-3">
                     <i class="fas fa-plus-square"></i> Registrar Material
                 </button>
-
+                <div class="btn-group" role="group">
+                    <button type="button" id="btn-todos"
+                            class="btn btn-sm btn-primary"
+                            onclick="filtrarTabla('todos')">
+                        <i class="fas fa-list mr-1"></i>Todos
+                    </button>
+                    <button type="button" id="btn-sin-objeto"
+                            class="btn btn-sm btn-outline-info"
+                            onclick="filtrarTabla('sin_objeto')">
+                        <i class="fas fa-unlink mr-1"></i>Sin Objeto Específico
+                    </button>
+                </div>
             </div>
         </section>
 
@@ -120,15 +131,7 @@
                     <div class="card-body">
                         <div class="row">
                             <div class="col-md-12">
-                                <div id="tablaDatatable">
-                                    {{-- Loading inicial --}}
-                                    <div id="loading-inventario" class="text-center py-5">
-                                        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
-                                            <span class="sr-only">Cargando...</span>
-                                        </div>
-                                        <p class="mt-3 text-muted">Cargando listado de materiales...</p>
-                                    </div>
-                                </div>
+                                <div id="tablaDatatable"></div>
                             </div>
                         </div>
                     </div>
@@ -164,6 +167,7 @@
                                            maxlength="100" id="codigo-nuevo" placeholder="Puede ser Modelo del Material">
                                 </div>
 
+
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
@@ -178,7 +182,7 @@
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label>Código Presupuestario: <span style="color: red">*</span></label>
+                                            <label>Objeto Específico: <span style="color: red">*</span></label>
                                             <select class="form-control" id="select-objeto-nuevo" style="width:100%">
                                                 <option value="">— Sin asignar —</option>
                                                 @foreach($lObjetoEspecifico as $obj)
@@ -245,7 +249,7 @@
                                             </div>
                                             <div class="col-md-6">
                                                 <div class="form-group">
-                                                    <label>Código Presupuestario: <small class="text-muted">(opcional)</small></label>
+                                                    <label>Objeto Específico: <small class="text-muted">(opcional)</small></label>
                                                     <select class="form-control" id="select-objeto-editar" style="width:100%">
                                                     </select>
                                                 </div>
@@ -269,11 +273,11 @@
 
     {{-- ══ Modal Proyectos ══ --}}
     <div class="modal fade" id="modalProyectos" tabindex="-1" role="dialog">
-        <div class="modal-dialog modal-md" role="document">
+        <div class="modal-dialog modal-lg" role="document">
             <div class="modal-content">
                 <div class="modal-header bg-info">
                     <h5 class="modal-title text-white">
-                        <i class="fas fa-boxes mr-2"></i>
+                        <i class="fas fa-map-marker-alt mr-2"></i>
                         Distribución — <span id="proyectos-material"></span>
                     </h5>
                     <button type="button" class="close text-white" data-dismiss="modal">
@@ -285,16 +289,18 @@
                         <i class="fas fa-spinner fa-spin fa-2x"></i>
                     </div>
                     <div id="proyectos-contenido" style="display:none;">
-                        <table class="table table-bordered table-sm mb-0">
+                        <table class="table table-bordered table-striped table-sm">
                             <thead class="thead-dark">
                             <tr>
+                                <th style="width: 5%">#</th>
+                                <th>Proyecto</th>
                                 <th class="text-center">Entradas</th>
                                 <th class="text-center">Salidas</th>
                                 <th class="text-center">Disponible</th>
                             </tr>
                             </thead>
                             <tbody id="proyectos-tbody"></tbody>
-                            <tfoot id="proyectos-tfoot" class="font-weight-bold bg-light"></tfoot>
+
                         </table>
                     </div>
                     <div id="proyectos-vacio" class="text-center text-muted py-4" style="display:none;">
@@ -409,21 +415,9 @@
 
         function cargarTabla(filtro) {
             var url = rutaTabla + '?filtro=' + filtro;
-
             if ($.fn.DataTable.isDataTable('#tabla')) {
                 $('#tabla').DataTable().destroy();
             }
-
-            // Mostrar loading antes de la petición
-            $('#tablaDatatable').html(`
-                <div class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
-                        <span class="sr-only">Cargando...</span>
-                    </div>
-                    <p class="mt-3 text-muted">Cargando listado de materiales...</p>
-                </div>
-            `);
-
             $('#tablaDatatable').load(url, function () {
                 initDataTable();
             });
@@ -464,7 +458,7 @@
 
             if (!nombre) { toastr.error('Nombre es requerido'); return; }
             if (!unidad) { toastr.error('Unidad Medida es requerida'); return; }
-            if (!id_objespecifico) { toastr.error('Código Presupuestario es requerido'); return; }
+            if (!id_objespecifico) { toastr.error('Objeto Específico es requerido'); return; }
 
             openLoading();
             var formData = new FormData();
@@ -544,7 +538,7 @@
 
             if (!nombre) { toastr.error('Nombre es requerido'); return; }
             if (!unidad) { toastr.error('Unidad Medida es requerida'); return; }
-            if (!id_objespecifico) { toastr.error('Código Presupuestario es requerido'); return; }
+            if (!id_objespecifico) { toastr.error('Objeto Específico es requerido'); return; }
 
             openLoading();
             var formData = new FormData();
@@ -583,40 +577,38 @@
             }, 10);
         }
 
-        // ── Ver inventario ────────────────────────────────────────────
-        function verInventario(id, nombre) {
+        // ── Ver proyectos ─────────────────────────────────────────────
+        function verProyectos(id, nombre) {
             $('#proyectos-material').text(nombre);
             $('#proyectos-tbody').html('');
-            $('#proyectos-tfoot').html('');
             $('#proyectos-contenido').hide();
             $('#proyectos-vacio').hide();
             $('#proyectos-loading').show();
             $('#modalProyectos').modal('show');
 
-            axios.post(urlAdmin + '/admin/inventario/catalogo', { id: id })
+            axios.post(urlAdmin + '/admin/inventario/proyectos', { id: id })
                 .then((response) => {
                     $('#proyectos-loading').hide();
+                    if (response.data.success === 1 && response.data.proyectos.length > 0) {
+                        let html = '';
+                        let totalEntradas = 0, totalSalidas = 0, totalDisponible = 0;
 
-                    if (response.data.success === 1) {
-                        var t = response.data.totales;
+                        response.data.proyectos.forEach((fila, index) => {
+                            totalEntradas   += fila.entradas;
+                            totalSalidas    += fila.salidas;
+                            totalDisponible += fila.disponible;
 
-                        // Si todo está en 0, mostrar vacío
-                        if (t.entradas === 0 && t.salidas === 0) {
-                            $('#proyectos-vacio').show();
-                            return;
-                        }
+                            html += `
+                                <tr>
+                                    <td>${index + 1}</td>
+                                    <td>${fila.proyecto}</td>
+                                    <td class="text-center">${fila.entradas}</td>
+                                    <td class="text-center">${fila.salidas}</td>
+                                    <td class="text-center"><strong>${fila.disponible}</strong></td>
+                                </tr>`;
+                        });
 
-                        $('#proyectos-tbody').html(`
-                            <tr>
-                                <td class="text-center">${t.entradas}</td>
-                                <td class="text-center">${t.salidas}</td>
-                                <td class="text-center">
-                                    <strong class="${t.disponible > 0 ? 'text-success' : 'text-danger'}">
-                                        ${t.disponible}
-                                    </strong>
-                                </td>
-                            </tr>
-                        `);
+                        $('#proyectos-tbody').html(html);
 
                         $('#proyectos-contenido').show();
                     } else {

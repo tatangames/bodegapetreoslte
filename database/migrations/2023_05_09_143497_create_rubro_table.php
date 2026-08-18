@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * RUBRO - CODIGOS
+     * Run the migrations.
      */
     public function up(): void
     {

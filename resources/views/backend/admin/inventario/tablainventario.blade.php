@@ -10,8 +10,8 @@
                                 <th style="width: 8%">Marca</th>
                                 <th style="width: 20%">Nombre</th>
                                 <th style="width: 10%">Medida</th>
-                                <th style="width: 10%">Cantidad Actual</th>
-                                <th style="width: 15%">Cod. Presup.</th>
+                                <th style="width: 10%">Cantidad</th>
+                                <th style="width: 15%">Objeto Específico</th>
                                 <th style="width: 15%">Opciones</th>
                             </tr>
                             </thead>

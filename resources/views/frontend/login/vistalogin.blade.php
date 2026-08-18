@@ -4,7 +4,7 @@
 @include('backend.urlglobal')
 
 <head>
-    <title>Planta Procesador de Petreos</title>
+    <title>Petreos</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="{{ asset('css/login/bootstrap.min.css') }}">
@@ -107,7 +107,7 @@
 <div class="container">
     <div class="demo-container" style="margin-top: 10px">
         <div class="container">
-            <div class="row">
+            <div class="row"  style="margin-top:10%">
                 <div class="col-lg-6 col-12 mx-auto">
 
                     <div class="bg-white shadow-lg text-center login-card">
@@ -133,9 +133,6 @@
                                        style="margin-top: 20px"
                                        onclick="login()"
                                        class="btn btn-primary btn-lg w-100 shadow-lg">
-
-
-
                             </div>
                         </form>
                     </div>

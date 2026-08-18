@@ -28,6 +28,7 @@
             </a>
         </div>
     </li>
+
     <li class="nav-item">
         <form action="{{ route('admin.logout') }}" method="POST" class="d-inline">
             @csrf
@@ -40,20 +41,6 @@
 @endsection
 
 @section('content')
-
-    <style>
-        .drop-filtro-item {
-            padding: 7px 12px;
-            cursor: pointer;
-            border-bottom: 1px solid #eee;
-            font-size: 13px;
-        }
-        .drop-filtro-item:hover {
-            background: #eef3ff;
-            font-weight: bold;
-        }
-    </style>
-
     <div id="divcontenedor">
 
         {{-- ══ FILTROS ══ --}}
@@ -64,7 +51,21 @@
                         <h3 class="card-title"><i class="fas fa-filter mr-1"></i> Filtros</h3>
                     </div>
                     <div class="card-body">
+
+                        {{-- Fila 1: Proyecto + Fechas + Botones --}}
                         <div class="row align-items-end">
+                            <div class="col-md-4">
+                                <label class="font-weight-bold">Proyecto</label>
+                                <select class="form-control" id="filtro-proyecto">
+                                    <option value="">— Todos —</option>
+                                    @foreach($arrayProyectos as $p)
+                                        <option value="{{ $p->id }}"
+                                                data-cerrado="{{ $p->transferido ? '1' : '0' }}">
+                                            {{ $p->nombre }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
                             <div class="col-md-3">
                                 <label class="font-weight-bold">Fecha desde</label>
                                 <input type="date" class="form-control" id="filtro-fecha-desde">
@@ -73,43 +74,34 @@
                                 <label class="font-weight-bold">Fecha hasta</label>
                                 <input type="date" class="form-control" id="filtro-fecha-hasta">
                             </div>
-                            <div class="col-md-3">
-                                <label class="font-weight-bold">N. Talonario</label>
-                                <input type="text" class="form-control" id="filtro-talonario" placeholder="Talonario...">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="font-weight-bold">N. Contrato</label>
-                                <input type="text" class="form-control" id="filtro-contrato" placeholder="Contrato...">
+                            <div class="col-md-2">
+                                <button class="btn btn-primary btn-block mb-1" onclick="recargar()">
+                                    <i class="fas fa-search mr-1"></i> Filtrar
+                                </button>
+                                <button class="btn btn-secondary btn-block" onclick="limpiarFiltros()">
+                                    <i class="fas fa-times mr-1"></i> Limpiar
+                                </button>
                             </div>
                         </div>
+
+                        {{-- Fila 2: Búsqueda por material --}}
                         <div class="row align-items-end mt-3">
-                            <div class="col-md-3">
-                                <label class="font-weight-bold">N. Orden</label>
-                                <input type="text" class="form-control" id="filtro-orden" placeholder="Orden...">
+                            <div class="col-md-6">
+                                <label class="font-weight-bold">
+                                    <i class="fas fa-box mr-1 text-muted"></i> Buscar por material (nombre)
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="filtro-material"
+                                       placeholder="Ej: cemento, MAT-001 ...">
                             </div>
-                            <div class="col-md-4">
-                                <label class="font-weight-bold">Buscar por material</label>
-                                <div style="position:relative;">
-                                    <input type="text" class="form-control" id="filtro-material"
-                                           placeholder="Nombre del material..." autocomplete="off">
-                                    <div id="drop-filtro-material"
-                                         style="display:none; position:absolute; z-index:999; width:100%;
-                                                background:#fff; border:1px solid #ccc; border-radius:4px;
-                                                box-shadow:0 4px 10px rgba(0,0,0,.15); max-height:220px; overflow-y:auto;">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3 d-flex align-items-end">
-                                <div style="width:100%">
-                                    <button class="btn btn-primary btn-block mb-1" onclick="recargar()">
-                                        <i class="fas fa-search mr-1"></i> Filtrar
-                                    </button>
-                                    <button class="btn btn-secondary btn-block" onclick="limpiarFiltros()">
-                                        <i class="fas fa-times mr-1"></i> Limpiar
-                                    </button>
-                                </div>
+                            <div class="col-md-6 d-flex align-items-end">
+                                <small class="text-muted">
+                                    Filtra las salidas que contengan ese material en su detalle.
+                                </small>
                             </div>
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -134,9 +126,9 @@
         </section>
     </div>
 
-    {{-- ══ Modal Editar Salida ══ --}}
-    <div class="modal fade" id="modalEditar" tabindex="-1">
-        <div class="modal-dialog modal-xl">
+    {{-- Modal Editar Salida --}}
+    <div class="modal fade" id="modalEditar" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-md" role="document">
             <div class="modal-content">
                 <div class="modal-header bg-warning">
                     <h5 class="modal-title text-white">
@@ -149,123 +141,41 @@
                 <div class="modal-body">
                     <form id="formulario-editar">
                         <input type="hidden" id="id-editar">
-
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>Fecha <span class="text-danger">*</span></label>
-                                    <input type="date" id="fecha-editar" class="form-control">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>N. Talonario <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="talonario-editar" class="form-control" maxlength="100">
-                                </div>
-                            </div>
+                        <div class="form-group">
+                            <label>Fecha <span class="text-danger">*</span></label>
+                            <input type="date" id="fecha-editar" class="form-control">
                         </div>
-
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="form-group">
-                                    <label>Número Contrato <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="numerocontrato-editar" class="form-control" maxlength="100">
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="form-group">
-                                    <label>Número Orden <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="numeroorden-editar" class="form-control" maxlength="100">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>Firma 1 <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="firma1-editar" class="form-control" maxlength="100">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>Firma 2 <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="firma2-editar" class="form-control" maxlength="100">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>Firma 3 <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="firma3-editar" class="form-control" maxlength="100">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>Autoriza a <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="autorizadoa-editar" class="form-control" maxlength="200">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>A petición de <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="peticiona-editar" class="form-control" maxlength="200">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label>Para uso en <small class="text-muted">(Opcional)</small></label>
-                                    <input type="text" id="usoa-editar" class="form-control" maxlength="200">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="form-group">
-                                    <label>Encabezado <small class="text-muted">(Opcional)</small></label>
-                                    <textarea id="encabezado-editar" class="form-control" rows="3" maxlength="5000"></textarea>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="form-group">
-                                    <label>Pie Página <small class="text-muted">(Opcional)</small></label>
-                                    <textarea id="piepagina-editar" class="form-control" rows="3" maxlength="5000"></textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-12">
-                                <div class="form-group">
-                                    <label>Descripción <small class="text-muted">(Opcional)</small></label>
-                                    <textarea id="descripcion-editar" class="form-control"
-                                              rows="3" maxlength="800"></textarea>
-                                </div>
-                            </div>
+                        <div class="form-group">
+                            <label>Descripción</label>
+                            <textarea id="descripcion-editar" class="form-control"
+                                      rows="3" maxlength="800"
+                                      placeholder="Descripción opcional"></textarea>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
                     <button type="button" class="btn btn-warning" onclick="editar()">
-                        <i class="fas fa-save mr-1"></i> Guardar cambios
+                        <i class="fas fa-save mr-1"></i>Guardar cambios
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
-    {{-- ══ Modal Detalle Salida ══ --}}
-    <div class="modal fade" id="modalDetalle" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+    {{-- Modal Detalle Salida --}}
+    <div class="modal fade" id="modalDetalle" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
             <div class="modal-content">
                 <div class="modal-header bg-info">
                     <h5 class="modal-title text-white">
                         <i class="fas fa-list mr-2"></i>
-                        Detalle — <span id="detalle-titulo"></span>
+                        Detalle de Salida —
+                        <span id="detalle-proyecto"></span>
+                        <small class="ml-2" id="detalle-fecha"></small>
+                        <span id="detalle-badge-cerrado" class="badge badge-danger ml-2" style="display:none;">
+                            Proyecto Cerrado
+                        </span>
                     </h5>
                     <button type="button" class="close text-white" data-dismiss="modal">
                         <span>&times;</span>
@@ -280,10 +190,10 @@
                             <thead class="thead-dark">
                             <tr>
                                 <th>#</th>
+                                <th>Código</th>
                                 <th>Material</th>
                                 <th class="text-center">Cantidad</th>
                                 <th class="text-right">Precio unitario</th>
-                                <th class="text-center">Acciones</th>
                             </tr>
                             </thead>
                             <tbody id="detalle-tbody"></tbody>
@@ -300,41 +210,6 @@
             </div>
         </div>
     </div>
-
-    {{-- ══ Modal Editar Cantidad Detalle ══ --}}
-    <div class="modal fade" id="modalEditarCantidad" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header bg-warning">
-                    <h5 class="modal-title text-white">
-                        <i class="fas fa-edit mr-2"></i>Editar Cantidad
-                    </h5>
-                    <button type="button" class="close text-white" data-dismiss="modal">
-                        <span>&times;</span>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <input type="hidden" id="ec-id">
-                    <div class="form-group">
-                        <label class="font-weight-bold" style="font-size:17px;">Material</label>
-                        <p id="ec-label-material"  style="font-size:17px;"></p>
-                    </div>
-                    <div class="form-group">
-                        <label>Nueva cantidad <span class="text-danger">*</span></label>
-                        <input type="number" id="ec-cantidad" class="form-control" min="1">
-                    </div>
-                    <div id="ec-error" class="text-danger" style="display:none; font-size:12px;"></div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-warning btn-sm" onclick="guardarCantidad()">
-                        <i class="fas fa-save mr-1"></i> Guardar
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
 @stop
 
 @section('js')
@@ -344,14 +219,38 @@
     <script src="{{ asset('js/select2.min.js') }}" type="text/javascript"></script>
 
     <script>
-        var _salidaIdActual       = null;
-        var _salidaTituloActual   = '';
-        var _tablaCargada         = false;
-        var _seguroFiltroMaterial = true;
-
         $(function () {
             const ruta = "{{ url('/admin/historial/salidas/tabla') }}";
 
+            // ── Select2 con badge de estado ───────────────────────
+            $('#filtro-proyecto').select2({
+                theme: 'bootstrap-5',
+                placeholder: '— Todos —',
+                allowClear: true,
+                language: { noResults: function () { return 'No encontrado'; } },
+                templateResult: function (data) {
+                    if (!data.id) return data.text;
+                    var cerrado = $(data.element).data('cerrado') == '1';  // 👈
+                    return $('<span class="d-flex align-items-center justify-content-between">')
+                        .append($('<span>').text(data.text))
+                        .append($('<span>')
+                            .addClass(cerrado ? 'badge badge-danger ml-2' : 'badge badge-success ml-2')
+                            .text(cerrado ? 'Cerrado' : 'Activo')
+                        );
+                },
+                templateSelection: function (data) {
+                    if (!data.id) return data.text;
+                    var cerrado = $(data.element).data('cerrado') == '1';  // 👈
+                    return $('<span>')
+                        .append($('<span>').text(data.text))
+                        .append($('<span>')
+                            .addClass(cerrado ? 'badge badge-danger ml-2' : 'badge badge-success ml-2')
+                            .text(cerrado ? 'Cerrado' : 'Activo')
+                        );
+                }
+            });
+
+            // ── DataTable ─────────────────────────────────────────
             function initDataTable() {
                 if ($.fn.DataTable.isDataTable('#tabla')) {
                     $('#tabla').DataTable().destroy();
@@ -389,87 +288,41 @@
                 $('#tabla_filter input').addClass('form-control form-control-sm').css('display', 'inline-block');
             }
 
+            // ── Cargar tabla con filtros ──────────────────────────
             function cargarTabla() {
+                const proyecto   = $('#filtro-proyecto').val();
                 const fechaDesde = $('#filtro-fecha-desde').val();
                 const fechaHasta = $('#filtro-fecha-hasta').val();
                 const material   = $('#filtro-material').val().trim();
-                const talonario  = $('#filtro-talonario').val().trim();
-                const contrato   = $('#filtro-contrato').val().trim();
-                const orden      = $('#filtro-orden').val().trim();
 
                 const params = new URLSearchParams();
+                if (proyecto)   params.append('proyecto',    proyecto);
                 if (fechaDesde) params.append('fecha_desde', fechaDesde);
                 if (fechaHasta) params.append('fecha_hasta', fechaHasta);
                 if (material)   params.append('material',    material);
-                if (talonario)  params.append('talonario',   talonario);
-                if (contrato)   params.append('contrato',    contrato);
-                if (orden)      params.append('orden',       orden);
 
                 const url = params.toString() ? ruta + '?' + params.toString() : ruta;
-                $('#tablaDatatable').load(url, function () { initDataTable(); });
+
+                $('#tablaDatatable').load(url, function () {
+                    initDataTable();
+                });
             }
 
-            window.recargar = function () {
-                _tablaCargada = true;
-                cargarTabla();
-            };
+            window.recargar = function () { cargarTabla(); };
 
             window.limpiarFiltros = function () {
+                $('#filtro-proyecto').val('').trigger('change');
                 $('#filtro-fecha-desde').val('');
                 $('#filtro-fecha-hasta').val('');
                 $('#filtro-material').val('');
-                $('#filtro-talonario').val('');
-                $('#filtro-contrato').val('');
-                $('#filtro-orden').val('');
-                $('#drop-filtro-material').hide().html('');
-                if (_tablaCargada) cargarTabla();
+                cargarTabla();
             };
 
-            // ── Autocomplete filtro material ──────────────────────
-            $('#filtro-material').on('keyup', function () {
-                var texto = $(this).val().trim();
-                if (texto.length < 2) {
-                    $('#drop-filtro-material').hide().html('');
-                    return;
-                }
-                if (!_seguroFiltroMaterial) return;
-                _seguroFiltroMaterial = false;
-
-                axios.post(urlAdmin + '/admin/historial/buscarmaterial/nombre', { query: texto })
-                    .then((response) => {
-                        _seguroFiltroMaterial = true;
-                        var nombres = response.data;
-
-                        if (!nombres.length) {
-                            $('#drop-filtro-material').hide().html('');
-                            return;
-                        }
-
-                        var html = '';
-                        nombres.forEach(function (nombre) {
-                            html += '<div class="drop-filtro-item">' + nombre + '</div>';
-                        });
-                        $('#drop-filtro-material').html(html).fadeIn();
-                    })
-                    .catch(() => { _seguroFiltroMaterial = true; });
-            });
-
-            $(document).on('click', '.drop-filtro-item', function () {
-                $('#filtro-material').val($(this).text().trim());
-                $('#drop-filtro-material').hide().html('');
-            });
-
-            $(document).on('click', function (e) {
-                if (!$(e.target).closest('#filtro-material, #drop-filtro-material').length) {
-                    $('#drop-filtro-material').hide();
-                }
-            });
-
-            // ── Delegación botones detalle ────────────────────────
-            $(document).on('click', '.btn-eliminar-detalle-salida', function () {
-                eliminarDetalleItem($(this).data('id'), $(this).data('material'), $(this).data('salida-id'));
-            });
+            cargarTabla();
         });
+    </script>
+
+    <script>
 
         // ── Editar cabecera ───────────────────────────────────────
         function modalEditar(id) {
@@ -482,19 +335,9 @@
                     if (response.data.success === 1) {
                         const s = response.data.salida;
                         $('#id-editar').val(s.id);
-                        $('#fecha-editar').val(s.fecha ? s.fecha.substring(0, 10) : '');
-                        $('#talonario-editar').val(s.ficha_talonario   ?? '');
-                        $('#numerocontrato-editar').val(s.numero_contrato ?? '');
-                        $('#numeroorden-editar').val(s.numero_orden    ?? '');
-                        $('#firma1-editar').val(s.nombre_firma_1       ?? '');
-                        $('#firma2-editar').val(s.nombre_firma_2       ?? '');
-                        $('#firma3-editar').val(s.nombre_firma_3       ?? '');
-                        $('#autorizadoa-editar').val(s.autoriza_a      ?? '');
-                        $('#peticiona-editar').val(s.peticion_a        ?? '');
-                        $('#usoa-editar').val(s.para_uso               ?? '');
-                        $('#encabezado-editar').val(s.encabezado       ?? '');
-                        $('#piepagina-editar').val(s.pie_pagina        ?? '');
-                        $('#descripcion-editar').val(s.descripcion     ?? '');
+                        const soloFecha = s.fecha ? s.fecha.substring(0, 10) : '';
+                        $('#fecha-editar').val(soloFecha);
+                        $('#descripcion-editar').val(s.descripcion ?? '');
                         $('#modalEditar').modal('show');
                     } else {
                         toastr.error('No se pudo cargar la información');
@@ -504,27 +347,18 @@
         }
 
         function editar() {
-            const id    = $('#id-editar').val();
-            const fecha = $('#fecha-editar').val().trim();
+            const id          = $('#id-editar').val();
+            const fecha       = $('#fecha-editar').val().trim();
+            const descripcion = $('#descripcion-editar').val().trim();
 
-            if (!fecha) { toastr.error('La fecha es requerida'); return; }
+            if (fecha === '')             { toastr.error('La fecha es requerida'); return; }
+            if (descripcion.length > 800) { toastr.error('Descripción máximo 800 caracteres'); return; }
 
             openLoading();
             const formData = new FormData();
-            formData.append('id',              id);
-            formData.append('fecha',           fecha);
-            formData.append('descripcion',     $('#descripcion-editar').val().trim());
-            formData.append('ficha_talonario', $('#talonario-editar').val().trim());
-            formData.append('numero_contrato', $('#numerocontrato-editar').val().trim());
-            formData.append('numero_orden',    $('#numeroorden-editar').val().trim());
-            formData.append('nombre_firma_1',  $('#firma1-editar').val().trim());
-            formData.append('nombre_firma_2',  $('#firma2-editar').val().trim());
-            formData.append('nombre_firma_3',  $('#firma3-editar').val().trim());
-            formData.append('autoriza_a',      $('#autorizadoa-editar').val().trim());
-            formData.append('peticion_a',      $('#peticiona-editar').val().trim());
-            formData.append('para_uso',        $('#usoa-editar').val().trim());
-            formData.append('encabezado',      $('#encabezado-editar').val().trim());
-            formData.append('pie_pagina',      $('#piepagina-editar').val().trim());
+            formData.append('id',          id);
+            formData.append('fecha',       fecha);
+            formData.append('descripcion', descripcion);
 
             axios.post(urlAdmin + '/admin/historial/salidas/editar', formData)
                 .then((response) => {
@@ -533,6 +367,18 @@
                         toastr.success('Salida actualizada correctamente');
                         $('#modalEditar').modal('hide');
                         recargar();
+                    } else if (response.data.success === 2) {
+                        Swal.fire({
+                            title: 'Fecha inválida',
+                            html:
+                                'El material <b>' + response.data.nombre_material + '</b> ' +
+                                'tiene fecha de ingreso <b>' + response.data.fecha_ingreso + '</b>.<br><br>' +
+                                'La fecha de salida (<b>' + response.data.fecha_salida + '</b>) ' +
+                                'no puede ser anterior al ingreso.',
+                            icon: 'warning',
+                            confirmButtonColor: '#d33',
+                            confirmButtonText: 'Entendido'
+                        });
                     } else {
                         toastr.error('Error al actualizar');
                     }
@@ -540,11 +386,11 @@
                 .catch(() => { closeLoading(); toastr.error('Error al actualizar'); });
         }
 
-        // ── Eliminar salida completa ──────────────────────────────
+        // ── Eliminar ──────────────────────────────────────────────
         function eliminar(id) {
             Swal.fire({
                 title: '¿Eliminar salida?',
-                text: 'Se eliminarán también todos los materiales asociados. Esta acción no se puede deshacer.',
+                text: 'Se eliminarán también todos los detalles relacionados. Esta acción no se puede deshacer.',
                 type: 'warning',
                 showCancelButton: true,
                 confirmButtonColor: '#d33',
@@ -569,16 +415,21 @@
             });
         }
 
-        // ── Ver detalle ───────────────────────────────────────────
-        function verDetalle(id, titulo) {
-            _salidaIdActual     = id;
-            _salidaTituloActual = titulo;
-
-            $('#detalle-titulo').text(titulo);
+        // ── Detalle salida ────────────────────────────────────────
+        function verDetalle(id, proyecto, fecha, cerrado) {
+            $('#detalle-proyecto').text(proyecto);
+            $('#detalle-fecha').text(fecha);
             $('#detalle-tbody').html('');
             $('#detalle-contenido').hide();
             $('#detalle-vacio').hide();
             $('#detalle-loading').show();
+
+            if (cerrado) {
+                $('#detalle-badge-cerrado').show();
+            } else {
+                $('#detalle-badge-cerrado').hide();
+            }
+
             $('#modalDetalle').modal('show');
 
             axios.post(urlAdmin + '/admin/historial/salidas/detalle', { id: id })
@@ -590,25 +441,10 @@
                             html += `
                                 <tr>
                                     <td>${index + 1}</td>
+                                    <td>${fila.codigo}</td>
                                     <td>${fila.material}</td>
-                                    <td class="text-center">
-                                        <span id="cantidad-span-${fila.id}">${fila.cantidad_salida}</span>
-                                    </td>
+                                    <td class="text-center">${fila.cantidad_salida}</td>
                                     <td class="text-right">$${fila.precio}</td>
-                                    <td class="text-center">
-                                        <button type="button"
-                                                class="btn btn-warning btn-xs mr-1"
-                                                onclick="modalEditarCantidad(${fila.id}, ${fila.cantidad_salida}, '${fila.material}')">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button type="button"
-                                                class="btn btn-danger btn-xs btn-eliminar-detalle-salida"
-                                                data-id="${fila.id}"
-                                                data-material="${fila.material}"
-                                                data-salida-id="${id}">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </td>
                                 </tr>`;
                         });
                         $('#detalle-tbody').html(html);
@@ -624,92 +460,5 @@
                 });
         }
 
-        function recargarDetalle() {
-            if (_salidaIdActual) {
-                verDetalle(_salidaIdActual, _salidaTituloActual);
-            }
-        }
-
-        // ── Editar cantidad detalle ───────────────────────────────
-        function modalEditarCantidad(id, cantidadActual, material) {
-            $('#ec-id').val(id);
-            $('#ec-cantidad').val(cantidadActual);
-            $('#ec-label-material').text(material);
-            $('#ec-error').hide().text('');
-            $('#modalEditarCantidad').modal('show');
-        }
-
-        function guardarCantidad() {
-            const id       = $('#ec-id').val();
-            const cantidad = parseInt($('#ec-cantidad').val());
-
-            if (!cantidad || cantidad < 1) {
-                $('#ec-error').text('Ingrese una cantidad válida mayor a 0').show();
-                return;
-            }
-
-            $('#ec-error').hide();
-            openLoading();
-
-            const formData = new FormData();
-            formData.append('id',       id);
-            formData.append('cantidad', cantidad);
-
-            axios.post(urlAdmin + '/admin/historial/salidas/editarcantidad', formData)
-                .then((response) => {
-                    closeLoading();
-                    if (response.data.success === 1) {
-                        toastr.success('Cantidad actualizada');
-                        $('#modalEditarCantidad').modal('hide');
-                        recargarDetalle();
-                    } else if (response.data.success === 2) {
-                        $('#ec-error').text(response.data.mensaje).show();
-                    } else {
-                        toastr.error('Error al actualizar');
-                    }
-                })
-                .catch(() => { closeLoading(); toastr.error('Error al actualizar'); });
-        }
-
-        // ── Eliminar item de detalle ──────────────────────────────
-        function eliminarDetalleItem(id, material, salidaId) {
-            Swal.fire({
-                title: '¿Eliminar material?',
-                html: `Se eliminará: <b>${material}</b><br><small class="text-muted">Si es el último material, la salida también será eliminada.</small>`,
-                type: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#d33',
-                cancelButtonColor: '#6c757d',
-                confirmButtonText: 'Sí, eliminar',
-                cancelButtonText: 'Cancelar'
-            }).then((result) => {
-                if (result.value) {
-                    openLoading();
-                    axios.post(urlAdmin + '/admin/historial/salidas/detalle/eliminar', { id: id })
-                        .then((response) => {
-                            closeLoading();
-                            switch (response.data.success) {
-                                case 1:
-                                    if (response.data.salida_borrada) {
-                                        toastr.success('Material eliminado. La salida fue eliminada por quedar vacía.');
-                                        $('#modalDetalle').modal('hide');
-                                        recargar();
-                                    } else {
-                                        toastr.success('Material eliminado correctamente');
-                                        recargarDetalle();
-                                        recargar();
-                                    }
-                                    break;
-                                case 0:
-                                    toastr.error('El material no existe o ya fue eliminado');
-                                    break;
-                                default:
-                                    toastr.error('Error al eliminar');
-                            }
-                        })
-                        .catch(() => { closeLoading(); toastr.error('Error al eliminar'); });
-                }
-            });
-        }
     </script>
 @endsection

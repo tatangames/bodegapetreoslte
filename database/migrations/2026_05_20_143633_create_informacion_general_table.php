@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * AJUSTES DE 1 FILA
+     * Run the migrations.
      */
     public function up(): void
     {
@@ -16,13 +16,28 @@ return new class extends Migration
 
             // REPORTE PIXELES DISTANCIAS
             $table->integer('px_firmas');
+            $table->integer('px_observaciones');
 
-            $table->string('nombre_firma_1', 100)->nullable();
-            $table->string('nombre_firma_2', 100)->nullable();
-            $table->string('nombre_firma_3', 100)->nullable();
+            // NOMBRES PARA EL REPORTE: INFORME DE INVENTARIO FÍSICO DE MATERIALES SOBRANTES
+            $table->string('c_nombre1', 200)->nullable(); // ELABORADO POR
+            $table->string('c_nombre2', 200)->nullable(); // REVISADO POR
+            $table->string('c_nombre3', 200)->nullable(); // ES CONFORME
 
-            $table->text('encabezado')->nullable();
-            $table->text('pie_pagina')->nullable();
+
+            // NOMBRES PARA EL REPORTE: REPORTE DE SALDOS DE MATERIALES SOBRANTES
+            $table->string('s_nombre1', 200)->nullable(); // [ENCARGADO DE BODEGA DE PROYECTO O RESPONSABLE ASIGNADO]
+            $table->string('s_nombre2', 200)->nullable(); // JEFE INMEDIATO
+
+            // NOMBRE PARA EL REPORTE: REPORTE DE MATERIALES SOBRANTES TRANSFERIDOS A PROYECTO DE INVERSIÓN PÚBLICA
+            // TAMBIEN PARA SALIDA GENERAL
+            $table->string('d_nombre1', 200)->nullable(); // [ENCARGADO DE BODEGA DE PROYECTO O RESPONSABLE ASIGNADO]
+            $table->string('d_nombre2', 200)->nullable(); // JEFE INMEDIATO
+
+            // NOMBRES PARA REPORTE POR PERIODOS
+
+            $table->string('p_nombre1', 200)->nullable(); // [ENCARGADO DE BODEGA DE PROYECTO O RESPONSABLE ASIGNADO]
+            $table->string('p_nombre2', 200)->nullable(); // JEFE INMEDIATO
+
         });
     }
 

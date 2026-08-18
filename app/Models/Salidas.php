@@ -9,8 +9,12 @@ class Salidas extends Model
     use HasFactory;
     protected $table = 'salidas';
     public $timestamps = false;
-    protected $fillable = ['id_equipo','fecha', 'descripcion', 'ficha_nombre', 'ficha_talonario'];
+    protected $fillable = ['fecha', 'descripcion', 'id_tipoproyecto'];
 
+    public function tipoproyecto()
+    {
+        return $this->belongsTo(TipoProyecto::class, 'id_tipoproyecto');
+    }
 
     public function detalle()
     {
@@ -20,11 +24,19 @@ class Salidas extends Model
     public function detalles()
     {
         return $this->hasMany(SalidasDetalle::class, 'id_salida', 'id');
+        // Ajusta: SalidaDetalle::class  → nombre real de tu modelo de detalles
+        //         'id_salida'           → FK en la tabla de detalles
+        //         'id'                  → PK en la tabla salidas
     }
 
-    public function equipo()
+    // Model Salidas.php
+    public function proyectoTransferencia()
     {
-        return $this->belongsTo(Equipos::class, 'id_equipo');
+        return $this->belongsTo(Tipoproyecto::class, 'id_tipoproyecto_transferencia');
     }
 
+    public function reserva()
+    {
+        return $this->belongsTo(Reserva::class, 'id_reserva');
+    }
 }
