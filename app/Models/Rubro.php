@@ -11,4 +11,11 @@ class Rubro extends Model
     protected $table = 'rubro';
     public $timestamps = false;
     protected $fillable = ['codigo', 'nombre'];
+
+
+    public function cuentas()
+    {
+        return $this->hasMany(Cuenta::class, 'id_rubro');
+    }
+
 }

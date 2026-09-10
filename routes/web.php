@@ -119,6 +119,7 @@ Route::middleware('auth:admin')->group(function () {
     // --- CIERRE DE PROYECTOS ---
     Route::get('/admin/cierre/proyectos', [SalidasController::class,'indexTransferencias'])->name('admin.transferencias.index');
     Route::post('/admin/generar/salida/transferencia',  [SalidasController::class,'generarSalidaTransferencia']);
+    Route::post('/admin/proyectos/reabrir',            [SalidasController::class, 'reabrirProyecto']);
 
 
     // --- HISTORIAL / ENTRADAS ---
@@ -203,6 +204,10 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('/admin/firmas/proyectos/completado/actualizar', [ReportesController::class, 'actualizarFirmasSobrantes']);
     Route::post('/admin/firmas/proyectos/traspaso/actualizar', [ReportesController::class, 'actualizarFirmasTraspaso']);
 
+    Route::get('/admin/reporte/quetengopor/proyectos/totalizado/pdf', [ReportesController::class, 'reporteTotalizadoTodosProyectos']);
+    Route::get('/admin/reporte/quetengopor/proyectos/totalizado-precio/pdf', [ReportesController::class, 'reporteTotalizadoTodosProyectosPrecio']);
+    Route::get('/admin/reporte/consolidado/materiales/pdf', [ReportesController::class, 'reporteConsolidadoMateriales']);
+
 
     // --- REPORTE / VER LOS MATERIALES QUE SOBRARON DE UN PROYECTO COMPLETADO
     Route::get('/admin/reporte/inventario/sobranteterminado/proy/{idtrans}', [ReportesController::class,'reporteProyectoTerminado']);
@@ -239,7 +244,27 @@ Route::middleware('auth:admin')->group(function () {
 
 
 
+    Route::get('/admin/reporte/cerrados/totalizado/pdf',
+        [ReportesController::class, 'reporteTotalizadoCerrados']);
 
+    // REPORTE INVENTARIO TOTALIZADO — DESGLOSE POR PRECIO
+    Route::get('/admin/reporte/cerrados/totalizado-desglosado/pdf',
+        [ReportesController::class, 'reporteTotalizadoCerradosDesglosadoPrecio']);
+
+    Route::get('/admin/reporte/cerrados/consolidado/materiales/pdf',
+        [ReportesController::class, 'reporteConsolidadoMaterialesCerrados']);
+
+    Route::get('/admin/reporte/cerrado/conteo/pdf/{id}',
+        [ReportesController::class, 'reporteConteoFisicoCerrado']);
+
+    Route::get('/admin/reporte/cerrado/lote/pdf/{id}',
+        [ReportesController::class, 'reporteLoteCerrado']);
+
+
+
+    // REPORTE INVENTARIO DESGLOSADO — DESGLOSE POR PRECIO (POR PROYECTO ACTIVO)
+    Route::get('/admin/reporte/quetengopor/proyectos/totalizado-desglosado/pdf/{id}',
+        [ReportesController::class, 'reporteTotalizadoActivoDesglosadoPrecio']);
 
 
 

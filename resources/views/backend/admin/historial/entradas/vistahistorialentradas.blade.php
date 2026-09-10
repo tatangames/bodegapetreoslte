@@ -217,7 +217,7 @@
                         </div>
                         <div class="form-group">
                             <label>Detalle (Opcional)</label>
-                            <input type="text" id="detalle-codigo-editar" class="form-control"
+                            <input type="text" autocomplete="off" id="detalle-codigo-editar" class="form-control"
                                    maxlength="100" placeholder="Código (opcional)">
                         </div>
                         <div class="form-group">
