@@ -2,9 +2,15 @@
 
 namespace App\Http\Controllers\Sistema;
 
-use App\Http\Controllers\Controller;use App\Models\Cuenta;use App\Models\Departamentos;use App\Models\Empleado;
+use App\Http\Controllers\Controller;
+use App\Models\Cuenta;
+use App\Models\Departamentos;
 use App\Models\Materiales;
-use App\Models\ObjetoEspecifico;use App\Models\Rubro;use App\Models\UnidadMedida;use Illuminate\Http\Request;use Illuminate\Support\Facades\Validator;
+use App\Models\ObjetoEspecifico;
+use App\Models\Rubro;
+use App\Models\UnidadMedida;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class ConfiguracionController extends Controller
 {
@@ -195,30 +201,21 @@ class ConfiguracionController extends Controller
         }
     }
 
-    public function informacionRubro(Request $request)
-    {
-        $validar = Validator::make($request->all(), [
+    public function informacionRubro(Request $request){
+        $regla = array(
             'id' => 'required',
-        ]);
+        );
 
-        if ($validar->fails()) { return ['success' => 0]; }
+        $validar = Validator::make($request->all(), $regla);
 
-        $dato = Rubro::find($request->id);
+        if ($validar->fails()){ return ['success' => 0];}
 
-        if (!$dato) { return ['success' => 2]; }
+        if($lista = Rubro::where('id', $request->id)->first()){
 
-        // Verifica si alguna cuenta de este rubro tiene objetos específicos con materiales
-        $tieneMateriales = $dato->cuentas()
-            ->whereHas('objetosEspecificos', function ($q) {
-                $q->whereHas('materiales');
-            })
-            ->exists();
-
-        return [
-            'success'          => 1,
-            'info'             => $dato,
-            'tiene_materiales' => $tieneMateriales,
-        ];
+            return ['success' => 1, 'info' => $lista];
+        }else{
+            return ['success' => 2];
+        }
     }
 
     public function editarRubro(Request $request){
@@ -288,18 +285,9 @@ class ConfiguracionController extends Controller
 
         $dato = Cuenta::find($request->id);
 
-        if (!$dato) { return ['success' => 2]; }
-
-        // Verifica si algún objeto específico de esta cuenta tiene materiales
-        $tieneMateriales = $dato->objetosEspecificos()
-            ->whereHas('materiales')
-            ->exists();
-
-        return [
-            'success'          => 1,
-            'info'             => $dato,
-            'tiene_materiales' => $tieneMateriales,
-        ];
+        return $dato
+            ? ['success' => 1, 'info' => $dato]
+            : ['success' => 2];
     }
 
     public function editarCuenta(Request $request)
@@ -357,25 +345,11 @@ class ConfiguracionController extends Controller
 
     public function informacionObjetoEspecifico(Request $request)
     {
-        $obj = ObjetoEspecifico::with('cuenta.rubro')->find($request->id);
+        $validar = Validator::make($request->all(), ['id' => 'required']);
+        if ($validar->fails()) { return ['success' => 0]; }
 
-        if (!$obj) {
-            return response()->json(['success' => 0]);
-        }
-
-        // Verificar si tiene materiales asignados
-        $tieneMateriales = $obj->materiales()->exists(); // ajusta el nombre de la relación
-
-        return response()->json([
-            'success' => 1,
-            'info' => [
-                'id'            => $obj->id,
-                'id_cuenta'     => $obj->id_cuenta,
-                'codigo'        => $obj->codigo,
-                'nombre'        => $obj->nombre,
-            ],
-            'tiene_materiales' => $tieneMateriales,
-        ]);
+        $dato = ObjetoEspecifico::find($request->id);
+        return $dato ? ['success' => 1, 'info' => $dato] : ['success' => 2];
     }
 
     public function editarObjetoEspecifico(Request $request)
