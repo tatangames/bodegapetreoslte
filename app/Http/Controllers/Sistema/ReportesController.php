@@ -9639,5 +9639,158 @@ padding:5px 4px; background:#d9e1f2; text-align:center;";
 
 
 
+    public function pdfReporteSalidaTalonarioGuardado($id)
+    {
+        $salida = Salidas::with('detalles.entradaDetalle.material.unidadMedida')
+            ->findOrFail($id);
+
+        $infoProyecto   = \App\Models\TipoProyecto::find($salida->id_tipoproyecto);
+        $nombreProyecto = $infoProyecto ? htmlspecialchars($infoProyecto->nombre) : '';
+
+        $fechaFmt     = $salida->fecha ? date('d/m/Y', strtotime($salida->fecha)) : '';
+        $logoalcaldia = 'images/logo.png';
+
+        $noEquipo     = htmlspecialchars($salida->ficha_no_equipo ?? '');
+        $motorista    = htmlspecialchars($salida->ficha_motorista ?? '');
+        $codigo       = htmlspecialchars($salida->ficha_codigo ?? '');
+        $nombreRecibe = htmlspecialchars($salida->ficha_nombre ?? '');
+
+        $html = "
+<table width='100%' style='border-collapse:collapse; font-family:Arial, sans-serif;'>
+    <tr>
+        <td style='width:25%; border:0.8px solid #000; padding:6px 8px;'>
+            <table width='100%'>
+                <tr>
+                    <td style='width:30%; text-align:left;'>
+                        <img src='{$logoalcaldia}' style='height:38px'>
+                    </td>
+                    <td style='width:70%; text-align:left; color:#104e8c; font-size:13px; font-weight:bold; line-height:1.3;'>
+                        SANTA ANA NORTE<br>EL SALVADOR
+                    </td>
+                </tr>
+            </table>
+        </td>
+        <td style='width:50%; border-top:0.8px solid #000; border-bottom:0.8px solid #000;
+                   padding:6px 8px; text-align:center; font-size:15px; font-weight:bold;'>
+            FORMULARIO DE SALIDA DE BODEGA
+        </td>
+        <td style='width:25%; border:0.8px solid #000; padding:0; vertical-align:top;'>
+            <table width='100%' style='font-size:10px;'>
+                <tr>
+                    <td width='40%' style='border-right:0.8px solid #000; border-bottom:0.8px solid #000; padding:4px 6px;'><strong>Código:</strong></td>
+                    <td width='60%' style='border-bottom:0.8px solid #000; padding:4px 6px; text-align:center;'>INAR-003-FORM</td>
+                </tr>
+                <tr>
+                    <td style='border-right:0.8px solid #000; border-bottom:0.8px solid #000; padding:4px 6px;'><strong>Versión:</strong></td>
+                    <td style='border-bottom:0.8px solid #000; padding:4px 6px; text-align:center;'>000</td>
+                </tr>
+                <tr>
+                    <td style='border-right:0.8px solid #000; padding:4px 6px;'><strong>Fecha de vigencia:</strong></td>
+                    <td style='padding:4px 6px; text-align:center;'>18/03/2026</td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+
+<br>
+
+<table width='100%' style='font-family:Arial, sans-serif; font-size:12px; border-collapse:collapse;'>
+
+    <tr>
+        <td width='50%' style='padding:4px 0;'>
+            <strong>FECHA:</strong> &nbsp; {$fechaFmt}
+        </td>
+        <td width='50%' style='padding:4px 0;'>
+            <strong>NO. EQUIPO:</strong> &nbsp; {$noEquipo}
+        </td>
+    </tr>
+
+    <tr>
+        <td colspan='2' style='padding:4px 0;'>
+            <strong>PROYECTO:</strong> &nbsp; {$nombreProyecto}
+        </td>
+    </tr>
+
+    <tr>
+        <td width='50%' style='padding:4px 0;'>
+            <strong>MOTORISTA:</strong> &nbsp; {$motorista}
+        </td>
+        <td width='50%' style='padding:4px 0;'>
+            <strong>CÓDIGO:</strong> &nbsp; {$codigo}
+        </td>
+    </tr>
+
+    <tr>
+        <td colspan='2' style='padding:4px 0;'>
+            <strong>MAESTRO DE OBRA:</strong> &nbsp; {$nombreRecibe}
+        </td>
+    </tr>
+
+</table>
+
+<br>
+
+<table width='100%' style='border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px;'>
+    <thead>
+        <tr>
+            <th style='width:20%; border:0.8px solid #000; padding:6px 8px; text-align:center; background:#f0f0f0;'>CANTIDAD</th>
+            <th style='width:80%; border:0.8px solid #000; padding:6px 8px; text-align:center; background:#f0f0f0;'>DESCRIPCION</th>
+        </tr>
+    </thead>
+    <tbody>";
+
+        foreach ($salida->detalles as $item) {
+            $cantidad = htmlspecialchars($item->cantidad_salida ?? '');
+
+            $material  = $item->entradaDetalle?->material;
+            $nombreMat = htmlspecialchars($material->nombre ?? '');
+
+            $html .= "
+    <tr>
+        <td style='border:0.8px solid #000; padding:5px 8px; text-align:center;'>{$cantidad}</td>
+        <td style='border:0.8px solid #000; padding:5px 8px;'>{$nombreMat}</td>
+    </tr>";
+        }
+
+        $html .= "
+    </tbody>
+</table>
+
+<br><br><br><br>
+
+<table width='100%' style='font-family:Arial, sans-serif; font-size:11px; border-collapse:collapse;'>
+    <tr>
+        <td width='40%' style='text-align:center; padding-bottom:4px;'>________________________________</td>
+        <td width='20%'></td>
+        <td width='40%' style='text-align:center; padding-bottom:4px;'>________________________________</td>
+    </tr>
+    <tr>
+        <td width='40%' style='text-align:center;'><strong>ENCARGADO DE BODEGA<br>ENTREGA</strong></td>
+        <td width='20%'></td>
+        <td width='40%' style='text-align:center;'><strong>MAESTRO DE OBRA<br>RECIBE</strong></td>
+    </tr>
+</table>
+
+<br><br><br>";
+
+        $mpdf = new \Mpdf\Mpdf([
+            'tempDir'       => sys_get_temp_dir(),
+            'format'        => 'LETTER',
+            'margin_top'    => 15,
+            'margin_bottom' => 15,
+            'margin_left'   => 15,
+            'margin_right'  => 15,
+        ]);
+
+        $mpdf->SetTitle('Formulario de Salida de Bodega');
+        $mpdf->showImageErrors = false;
+
+        $stylesheet = file_get_contents('css/cssregistro.css');
+        $mpdf->WriteHTML($stylesheet, 1);
+        $mpdf->WriteHTML($html, 2);
+        $mpdf->Output('salida_bodega_' . $salida->id . '.pdf', 'I');
+    }
+
 
 }

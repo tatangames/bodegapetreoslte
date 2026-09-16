@@ -143,6 +143,9 @@ Route::middleware('auth:admin')->group(function () {
     Route::post('/admin/historial/salidas/detalle', [HistorialController::class, 'detalleSalida']);
     Route::get('/admin/historial/salidas/extras/{id}',      [HistorialController::class, 'vistaExtrasSalida'])->name('admin.historial.salidas.extras');
     Route::post('/admin/historial/salidas/extras/guardar',  [HistorialController::class, 'guardarExtrasSalida']);
+    Route::get('/admin/historial/salidas/detalle/{id}', [ReportesController::class, 'pdfReporteSalidaTalonarioGuardado']);
+
+
 
     // --- TRANSFERENCIA DE MATERIALES DE PROYECTOS CERRADOS ---
     Route::get('/admin/transferencia/material/proyectoscerrados', [SalidasController::class,'indexTransferenciasDeProyectosCerrados'])->name('admin.transferencias.materiales.index');
