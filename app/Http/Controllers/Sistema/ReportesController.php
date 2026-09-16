@@ -9639,6 +9639,7 @@ padding:5px 4px; background:#d9e1f2; text-align:center;";
 
 
 
+
     public function pdfReporteSalidaTalonarioGuardado($id)
     {
         $salida = Salidas::with('detalles.entradaDetalle.material.unidadMedida')
@@ -9653,6 +9654,7 @@ padding:5px 4px; background:#d9e1f2; text-align:center;";
         $noEquipo     = htmlspecialchars($salida->ficha_no_equipo ?? '');
         $motorista    = htmlspecialchars($salida->ficha_motorista ?? '');
         $codigo       = htmlspecialchars($salida->ficha_codigo ?? '');
+        $talonario    = htmlspecialchars($salida->ficha_talonario ?? '');
         $nombreRecibe = htmlspecialchars($salida->ficha_nombre ?? '');
 
         $html = "
@@ -9722,7 +9724,10 @@ padding:5px 4px; background:#d9e1f2; text-align:center;";
     </tr>
 
     <tr>
-        <td colspan='2' style='padding:4px 0;'>
+        <td width='50%' style='padding:4px 0;'>
+            <strong>TALONARIO:</strong> &nbsp; {$talonario}
+        </td>
+        <td width='50%' style='padding:4px 0;'>
             <strong>MAESTRO DE OBRA:</strong> &nbsp; {$nombreRecibe}
         </td>
     </tr>
